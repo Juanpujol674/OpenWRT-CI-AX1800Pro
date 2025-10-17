@@ -145,7 +145,7 @@ echo "CONFIG_PACKAGE_luci-app-adguardhome=y" >> ./.config
 # Kiddin9 luci-app-nfs
 # echo "CONFIG_PACKAGE_luci-app-nfs=y" >> ./.config
 # zoneinfo-asia tzdata（时区数据库）的一部分，只包含亚洲相关的时区数据 zoneinfo-all全部时区（体积较大，不推荐在嵌入设备）
-echo "CONFIG_PACKAGE_zoneinfo-all=y" >> ./.config
+echo "CONFIG_PACKAGE_zoneinfo-asia=y" >> ./.config 
 # Caddy
 # echo "CONFIG_PACKAGE_luci-app-caddy=y" >> ./.config
 # Openssl
@@ -156,3 +156,9 @@ echo "CONFIG_PACKAGE_bind-dig=y" >> ./.config
 echo "CONFIG_PACKAGE_ss=y" >> ./.config
 # luci-app-turboacc
 echo "CONFIG_PACKAGE_luci-app-turboacc=y" >> ./.config
+
+#去掉上面不想要的
+#echo "CONFIG_PACKAGE_luci-app-nginx=n" >> ./.config
+#echo "CONFIG_PACKAGE_luci-app-caddy=n" >> ./.config
+#echo "CONFIG_PACKAGE_luci-app-adguardhome=n" >> ./.config
+#echo "CONFIG_PACKAGE_luci-app-dockerman=n" >> ./.config
