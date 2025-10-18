@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#安装和更新软件包
+# 安装和更新软件包
 UPDATE_PACKAGE() {
 	local PKG_NAME=$1
 	local PKG_REPO=$2
@@ -13,18 +13,15 @@ UPDATE_PACKAGE() {
 
 	# 删除本地可能存在的不同名称的软件包
 	for NAME in "${PKG_LIST[@]}"; do
-		# 查找匹配的目录
 		echo "Search directory: $NAME"
 		local FOUND_DIRS=$(find ../feeds/luci/ ../feeds/packages/ -maxdepth 3 -type d -iname "*$NAME*" 2>/dev/null)
-
-		# 删除找到的目录
 		if [ -n "$FOUND_DIRS" ]; then
 			while read -r DIR; do
 				rm -rf "$DIR"
 				echo "Delete directory: $DIR"
 			done <<< "$FOUND_DIRS"
 		else
-			echo "Not fonud directory: $NAME"
+			echo "Not found directory: $NAME"
 		fi
 	done
 
@@ -40,29 +37,14 @@ UPDATE_PACKAGE() {
 	fi
 }
 
-	# 提供 sing-box 包，满足 luci-app-homeproxy 依赖（与 sbwml 版本最匹配）
-	if [ ! -d "package/sing-box" ] && ! find feeds -maxdepth 3 -type d -name sing-box | grep -q .; then
-  		rm -rf package/*/sing-box feeds/*/sing-box || true
- 	 	git clone --depth=1 https://github.com/sbwml/sing-box package/sing-box
-	fi
-
-
-# 调用示例
-# UPDATE_PACKAGE "OpenAppFilter" "destan19/OpenAppFilter" "master" "" "custom_name1 custom_name2"
-# UPDATE_PACKAGE "open-app-filter" "destan19/OpenAppFilter" "master" "" "luci-app-appfilter oaf" 这样会把原有的open-app-filter，luci-app-appfilter，oaf相关组件删除，不会出现coremark错误。
-
-# UPDATE_PACKAGE "包名" "项目地址" "项目分支" "pkg/name，可选，pkg为从大杂烩中单独提取包名插件；name为重命名为包名"
-# UPDATE_PACKAGE "argon" "sbwml/luci-theme-argon" "openwrt-24.10"
+# === 常规包克隆 ===
 UPDATE_PACKAGE "kucat" "sirpdboy/luci-theme-kucat" "js"
-
 UPDATE_PACKAGE "homeproxy" "VIKINGYFY/homeproxy" "main"
 UPDATE_PACKAGE "nikki" "nikkinikki-org/OpenWrt-nikki" "main"
 UPDATE_PACKAGE "openclash" "vernesong/OpenClash" "dev" "pkg"
 UPDATE_PACKAGE "passwall" "xiaorouji/openwrt-passwall" "main" "pkg"
 UPDATE_PACKAGE "passwall2" "xiaorouji/openwrt-passwall2" "main" "pkg"
-
 UPDATE_PACKAGE "luci-app-tailscale" "asvow/luci-app-tailscale" "main"
-
 UPDATE_PACKAGE "ddns-go" "sirpdboy/luci-app-ddns-go" "main"
 UPDATE_PACKAGE "diskman" "lisaac/luci-app-diskman" "master"
 UPDATE_PACKAGE "easytier" "EasyTier/luci-app-easytier" "main"
@@ -77,9 +59,9 @@ UPDATE_PACKAGE "qmodem" "FUjr/QModem" "main"
 UPDATE_PACKAGE "viking" "VIKINGYFY/packages" "main" "" "luci-app-timewol luci-app-wolplus"
 UPDATE_PACKAGE "vnt" "lmq8267/luci-app-vnt" "main"
 UPDATE_PACKAGE "sing-box" "SagerNet/sing-box" "main"
-#UPDATE_PACKAGE "dockerman" "lisaac/luci-app-dockerman" "master"
+# UPDATE_PACKAGE "dockerman" "lisaac/luci-app-dockerman" "master"
 
-#更新软件包版本
+# === 更新软件包版本 ===
 UPDATE_VERSION() {
 	local PKG_NAME=$1
 	local PKG_MARK=${2:-false}
@@ -102,7 +84,6 @@ UPDATE_VERSION() {
 		local OLD_HASH=$(grep -Po "PKG_HASH:=\K.*" "$PKG_FILE")
 
 		local PKG_URL=$([[ "$OLD_URL" == *"releases"* ]] && echo "${OLD_URL%/}/$OLD_FILE" || echo "${OLD_URL%/}")
-
 		local NEW_VER=$(echo $PKG_TAG | sed -E 's/[^0-9]+/\./g; s/^\.|\.$//g')
 		local NEW_URL=$(echo $PKG_URL | sed "s/\$(PKG_VERSION)/$NEW_VER/g; s/\$(PKG_NAME)/$PKG_NAME/g")
 		local NEW_HASH=$(curl -sL "$NEW_URL" | sha256sum | cut -d ' ' -f 1)
@@ -120,11 +101,9 @@ UPDATE_VERSION() {
 	done
 }
 
-#UPDATE_VERSION "软件包名" "测试版，true，可选，默认为否"
-#UPDATE_VERSION "sing-box"
 UPDATE_VERSION "tailscale"
 
-# Git稀疏克隆，只克隆指定目录到本地
+# === Git稀疏克隆，只克隆指定目录到本地 ===
 function git_sparse_clone() {
 	branch="$1" repourl="$2" && shift 2
 	git clone --depth=1 -b $branch --single-branch --filter=blob:none --sparse $repourl
@@ -134,41 +113,36 @@ function git_sparse_clone() {
 	cd .. && rm -rf $repodir
 }
 
-# 拉取Lucky最新版的源码
+# === 拉取Lucky最新版源码 ===
 git clone https://github.com/sirpdboy/luci-app-lucky.git package/lucky
 # git clone https://github.com/gdy666/luci-app-lucky package/lucky
 
-#删除官方的默认插件
-# rm -rf ../feeds/luci/applications/luci-app-{passwall*,mosdns,dockerman,dae*,bypass*}
-# rm -rf ../feeds/packages/net/{shadowsocks-rust,shadowsocksr-libev,xray*,v2ray*,dae*,sing-box,geoview}
+# === 删除官方默认插件 ===
 rm -rf ../feeds/luci/applications/luci-app-{dae*}
 rm -rf ../feeds/packages/net/{dae*}
 
-# QiuSimons luci-app-daed
+# === QiuSimons luci-app-daed ===
 git clone https://github.com/QiuSimons/luci-app-daed package/dae
 mkdir -p Package/libcron && wget -O Package/libcron/Makefile https://raw.githubusercontent.com/immortalwrt/packages/refs/heads/master/libs/libcron/Makefile
 
-# # luci-app-daed-next
-# git clone https://github.com/sbwml/luci-app-daed-next package/daed-next
-
+# === 拉取小包集 ===
 git_sparse_clone main https://github.com/kenzok8/small-package daed-next luci-app-daed-next gost luci-app-gost luci-app-nginx luci-app-adguardhome
-
 git_sparse_clone main https://github.com/kiddin9/kwrt-packages natter2 luci-app-natter2 luci-app-cloudflarespeedtest luci-app-caddy openwrt-caddy
 
 git clone --depth 1 --single-branch https://github.com/breeze303/openwrt-podman package/podman
+
+# === 提供 sing-box 包，满足 luci-app-homeproxy 依赖（与 sbwml 版本最匹配） ===
+if [ ! -d "package/sing-box" ] && ! find feeds -maxdepth 3 -type f -path "*/sing-box/Makefile" | grep -q .; then
+	echo ">> sing-box not found, cloning sbwml/sing-box..."
+	rm -rf package/*/sing-box feeds/*/sing-box || true
+	git clone --depth=1 https://github.com/sbwml/sing-box package/sing-box && echo ">> Added sing-box successfully."
+else
+	echo ">> sing-box already exists, skip cloning."
+fi
+
+# === 安装所有 feeds ===
 ./scripts/feeds install -a
 
-# wget "https://alist.lovelyy.eu.org/d/CloudFlareR2/immortalwrt/nginx/ngnx.conf?sign=FN_uiyymuja-Aj1z4I4Pevn3arIZXBdslq8Zjd_akdo=:0" -O ../feeds/packages/net/nginx-util/files/nginx.config
+# === 修复 nginx 配置 ===
 wget "https://gitee.com/white-wolf-vvvk/DK8sDDosFirewall/raw/main/openwrtnginx.conf" -O ../feeds/packages/net/nginx-util/files/nginx.config
-# echo 检测一下nginx的配置文件
-# cat ../feeds/packages/net/nginx-util/files/nginx.config
-
-# sed -i 's/^large_client_header_buffers .*/large_client_header_buffers 8 32k;/' ../feeds/packages/net/nginx-util/files/uci.conf.template
-#检测一下nginx包头是否由2个K改成8个32K
 cat ../feeds/packages/net/nginx-util/files/uci.conf.template
-
-# 带sfe:
-# cd .. && curl -sSL https://raw.githubusercontent.com/chenmozhijin/turboacc/luci/add_turboacc.sh -o add_turboacc.sh && bash add_turboacc.sh
-
-# 不带sfe:
-# cd .. && curl -sSL https://raw.githubusercontent.com/chenmozhijin/turboacc/luci/add_turboacc.sh -o add_turboacc.sh && bash add_turboacc.sh --no-sfe
