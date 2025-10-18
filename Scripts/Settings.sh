@@ -162,3 +162,4 @@ echo "CONFIG_PACKAGE_luci-app-turboacc=y" >> ./.config
 #echo "CONFIG_PACKAGE_luci-app-caddy=n" >> ./.config
 #echo "CONFIG_PACKAGE_luci-app-adguardhome=n" >> ./.config
 #echo "CONFIG_PACKAGE_luci-app-dockerman=n" >> ./.config
+echo "CONFIG_PACKAGE_luci-app-homeproxy=n" >> ./.config
