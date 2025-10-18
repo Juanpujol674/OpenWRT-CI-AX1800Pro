@@ -40,6 +40,13 @@ UPDATE_PACKAGE() {
 	fi
 }
 
+	# 提供 sing-box 包，满足 luci-app-homeproxy 依赖（与 sbwml 版本最匹配）
+	if [ ! -d "package/sing-box" ] && ! find feeds -maxdepth 3 -type d -name sing-box | grep -q .; then
+  		rm -rf package/*/sing-box feeds/*/sing-box || true
+ 	 	git clone --depth=1 https://github.com/sbwml/sing-box package/sing-box
+	fi
+
+
 # 调用示例
 # UPDATE_PACKAGE "OpenAppFilter" "destan19/OpenAppFilter" "master" "" "custom_name1 custom_name2"
 # UPDATE_PACKAGE "open-app-filter" "destan19/OpenAppFilter" "master" "" "luci-app-appfilter oaf" 这样会把原有的open-app-filter，luci-app-appfilter，oaf相关组件删除，不会出现coremark错误。
@@ -157,7 +164,7 @@ wget "https://gitee.com/white-wolf-vvvk/DK8sDDosFirewall/raw/main/openwrtnginx.c
 # cat ../feeds/packages/net/nginx-util/files/nginx.config
 
 # sed -i 's/^large_client_header_buffers .*/large_client_header_buffers 8 32k;/' ../feeds/packages/net/nginx-util/files/uci.conf.template
-检测一下nginx包头是否由2个K改成8个32K
+#检测一下nginx包头是否由2个K改成8个32K
 cat ../feeds/packages/net/nginx-util/files/uci.conf.template
 
 # 带sfe:
