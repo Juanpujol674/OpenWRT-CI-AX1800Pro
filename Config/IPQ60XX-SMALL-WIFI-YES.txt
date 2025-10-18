@@ -113,3 +113,68 @@ CONFIG_KERNEL_USER_NS=y
 CONFIG_KERNEL_SECCOMP=y
 CONFIG_KERNEL_SECCOMP_FILTER=y
 CONFIG_KERNEL_KEYS=y
+
+# ===== SMALL 进一步瘦身（60MB 目标）=====
+# —— 关大块头应用 ——
+#CONFIG_PACKAGE_luci-app-tailscale=n
+#CONFIG_PACKAGE_tailscale=n
+CONFIG_PACKAGE_iperf3=n
+CONFIG_PACKAGE_openssh-sftp-server=n
+CONFIG_PACKAGE_openssh-keygen=n
+CONFIG_PACKAGE_luci-app-partexp=n
+CONFIG_PACKAGE_sfdisk=n
+CONFIG_PACKAGE_sgdisk=n
+CONFIG_PACKAGE_lsblk=n
+CONFIG_PACKAGE_usbutils=n
+CONFIG_PACKAGE_mmc-utils=n
+CONFIG_PACKAGE_nand-utils=n
+CONFIG_PACKAGE_luci-app-netspeedtest=n
+
+# —— 文件系统/内核模块 ——
+CONFIG_PACKAGE_kmod-fs-btrfs=n
+CONFIG_PACKAGE_kmod-fuse=n
+CONFIG_PACKAGE_kmod-mtd-rw=n
+# nft：保留 core/nat/tproxy/offload/bridge；可关 queue/socket/fib
+CONFIG_PACKAGE_kmod-nft-queue=n
+CONFIG_PACKAGE_kmod-nft-socket=n
+CONFIG_PACKAGE_kmod-nft-fib=n
+
+# —— 内核能力：不跑容器时全部关闭 ——
+CONFIG_KERNEL_CGROUPS=n
+CONFIG_KERNEL_CGROUP_PIDS=n
+CONFIG_KERNEL_MEMCG=n
+CONFIG_KERNEL_NAMESPACES=n
+CONFIG_KERNEL_USER_NS=n
+CONFIG_KERNEL_SECCOMP=n
+CONFIG_KERNEL_SECCOMP_FILTER=n
+CONFIG_KERNEL_KEYS=n
+
+# —— USB 控制器/存储 ——
+# 只保留 xhci/dwc3/storage；老控制器与扩展包关闭
+CONFIG_PACKAGE_kmod-usb-ohci=n
+CONFIG_PACKAGE_kmod-usb-uhci=n
+CONFIG_PACKAGE_kmod-usb-storage-extras=n
+CONFIG_PACKAGE_kmod-usb-storage-uas=n
+# 如确实不插U盘，也可进一步：
+# CONFIG_PACKAGE_kmod-usb-storage=n
+
+# —— USB 网卡：按需留1~2个，其他全关（这里仅保留最常见的 8152，如不用可再关） ——
+CONFIG_PACKAGE_kmod-usb-net=n
+CONFIG_PACKAGE_kmod-usb-net-cdc-eem=n
+CONFIG_PACKAGE_kmod-usb-net-cdc-ether=n
+CONFIG_PACKAGE_kmod-usb-net-cdc-mbim=n
+CONFIG_PACKAGE_kmod-usb-net-cdc-ncm=n
+CONFIG_PACKAGE_kmod-usb-net-cdc-subset=n
+CONFIG_PACKAGE_kmod-usb-net-huawei-cdc-ncm=n
+CONFIG_PACKAGE_kmod-usb-net-ipheth=n
+CONFIG_PACKAGE_kmod-usb-net-qmi-wwan=n
+CONFIG_PACKAGE_kmod-usb-net-qmi-wwan-fibocom=n
+CONFIG_PACKAGE_kmod-usb-net-qmi-wwan-quectel=n
+CONFIG_PACKAGE_kmod-usb-net-rndis=n
+CONFIG_PACKAGE_kmod-usb-net-rtl8150=n
+# 常见 USB 千兆转接（若确实使用则保留=y；否则也可以关）
+CONFIG_PACKAGE_kmod-usb-net-rtl8152=y
+
+# —— LuCI 协议插件：不用就关 ——
+CONFIG_PACKAGE_luci-proto-bonding=n
+CONFIG_PACKAGE_luci-proto-relay=n
