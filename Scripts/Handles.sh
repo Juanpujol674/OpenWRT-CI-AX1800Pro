@@ -3,8 +3,8 @@
 PKG_PATH="$GITHUB_WORKSPACE/wrt/package/"
 
 #预置HomeProxy数据
-if [ -d *"homeproxy"* ]; then
-	echo " "
+if [ -d ./homeproxy ]; then
+    echo "homeproxy detected, updating rules..."
 
 	HP_RULE="surge"
 	HP_PATH="homeproxy/root/etc/homeproxy"
