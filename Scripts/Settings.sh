@@ -162,4 +162,70 @@ echo "CONFIG_PACKAGE_luci-app-turboacc=y" >> ./.config
 #echo "CONFIG_PACKAGE_luci-app-caddy=n" >> ./.config
 #echo "CONFIG_PACKAGE_luci-app-adguardhome=n" >> ./.config
 #echo "CONFIG_PACKAGE_luci-app-dockerman=n" >> ./.config
-echo "CONFIG_PACKAGE_luci-app-homeproxy=n" >> ./.config
+#echo "CONFIG_PACKAGE_luci-app-homeproxy=n" >> ./.config
+
+# =========================
+# SMALL 机型体积保护（仅当配置名包含 small/samll 时生效）
+# =========================
+case "${WRT_CONFIG,,}" in
+  *small*|*samll*)
+    echo ">> SMALL profile detected, applying minimal/safe package set"
+
+    # 科学环境：你要求的最小集（这里再次覆盖，防止前面步骤改动）
+    cat >> ./.config << 'EOF_SM_MIN'
+CONFIG_PACKAGE_luci-app-homeproxy=n
+CONFIG_PACKAGE_luci-app-momo=y
+CONFIG_PACKAGE_luci-app-nikki=y
+CONFIG_PACKAGE_sing-box=y
+EOF_SM_MIN
+
+    # 常用功能白名单（确保不会被其它逻辑关闭）
+    cat >> ./.config << 'EOF_SM_WHITE'
+CONFIG_PACKAGE_luci-app-autoreboot=y
+CONFIG_PACKAGE_luci-app-gecoosac=y
+CONFIG_PACKAGE_luci-app-netspeedtest=y
+CONFIG_PACKAGE_luci-app-partexp=y
+CONFIG_PACKAGE_luci-app-tailscale=y
+CONFIG_PACKAGE_luci-app-upnp=y
+CONFIG_PACKAGE_luci-app-wolplus=y
+#CONFIG_PACKAGE_luci-app-wol=n
+CONFIG_PACKAGE_luci-app-adguardhome=y
+CONFIG_PACKAGE_adguardhome=y
+EOF_SM_WHITE
+
+    # 常见大体积/依赖复杂包：一律关闭（如前面被打开，这里覆盖成 n）
+    cat >> ./.config << 'EOF_SM_BLOCK'
+# 广告/代理/容器/下载等重型组件
+CONFIG_PACKAGE_luci-app-openclash=n
+CONFIG_PACKAGE_openclash=n
+CONFIG_PACKAGE_luci-app-lucky=n
+CONFIG_PACKAGE_lucky=n
+CONFIG_PACKAGE_luci-app-dockerman=n
+CONFIG_PACKAGE_dockerd=n
+CONFIG_PACKAGE_containerd=n
+CONFIG_PACKAGE_luci-app-podman=n
+CONFIG_PACKAGE_podman=n
+CONFIG_PACKAGE_luci-app-qbittorrent=n
+CONFIG_PACKAGE_qbittorrent=n
+CONFIG_PACKAGE_luci-app-gost=n
+CONFIG_PACKAGE_gost=n
+CONFIG_PACKAGE_luci-app-nginx=n
+CONFIG_PACKAGE_nginx-mod-luci=n
+CONFIG_PACKAGE_luci-app-filemanager=n
+# 工具类（按需再裁剪）
+CONFIG_PACKAGE_btop=n
+CONFIG_PACKAGE_bind-dig=n
+CONFIG_PACKAGE_coreutils=n
+CONFIG_PACKAGE_coreutils-base64=n
+# 如空间紧张，可禁用加速
+# CONFIG_PACKAGE_luci-app-turboacc=n
+EOF_SM_BLOCK
+
+    # 若源码里没有 sing-box 包，自动降级为 n，避免“no such package: sing-box”
+    if ! find feeds -maxdepth 3 -type f -path "*/sing-box/Makefile" | grep -q . && [ ! -d package/sing-box ]; then
+      echo "CONFIG_PACKAGE_sing-box=n" >> ./.config
+      echo ">> WARNING: sing-box package not found in feeds or package tree. It was disabled to avoid build failure."
+    fi
+    ;;
+esac
+
