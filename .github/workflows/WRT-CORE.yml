@@ -135,8 +135,9 @@ jobs:
 
       - name: Custom Packages(自定义软件包)
         run: |
-          cd ./wrt/
-          # 🟡 根据机型选择不同脚本
+          # 进入 wrt/package，再执行两个脚本（SMALL/大内存自动分流）
+          cd ./wrt/package/
+
           if [[ "${WRT_CONFIG,,}" == *"small"* || "${WRT_CONFIG,,}" == *"samll"* ]]; then
             echo ">> Detected SMALL config, using Packages_small.sh"
             bash $GITHUB_WORKSPACE/Scripts/Packages_small.sh
@@ -144,6 +145,8 @@ jobs:
             echo ">> Using standard Packages.sh"
             bash $GITHUB_WORKSPACE/Scripts/Packages.sh
           fi
+
+          # Handles.sh 中有对 package 子目录的修复与优化，保持在 package 目录下执行更安全
           bash $GITHUB_WORKSPACE/Scripts/Handles.sh
 
       - name: Custom Settings(自定义设置)
