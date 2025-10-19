@@ -3,7 +3,14 @@ name: QCA-SMALL
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 22 * * *'   # 每天 UTC 22:00 自动跑（北京时间次日 06:00）
+    - cron: '0 22 * * *'   # 每日 UTC 22:00（北京次日 06:00）
+
+permissions:
+  contents: write           # 供 WRT-CORE.yml 中发布 Release 使用
+
+concurrency:
+  group: qca-small-${{ github.ref }}-${{ matrix.wrt_config }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -15,16 +22,16 @@ jobs:
     name: SMALL | ${{ matrix.wrt_config }}
     uses: ./.github/workflows/WRT-CORE.yml
     with:
-      WRT_CONFIG: ${{ matrix.wrt_config }}
-      WRT_THEME: argon
-      WRT_NAME: OWRT
-      WRT_SSID: OWRT
-      WRT_WORD: 12345678
-      WRT_IP: 192.168.1.1
-      WRT_PW: 无
-      WRT_REPO: https://github.com/VIKINGYFY/immortalwrt.git
-      WRT_BRANCH: main
-      WRT_SOURCE: VIKINGYFY/immortalwrt
-      WRT_PACKAGE: ""      # 统一由 Config/*.txt + Settings.sh 控制
-      WRT_TEST: "false"
+      WRT_CONFIG:  ${{ matrix.wrt_config }}
+      WRT_THEME:   argon
+      WRT_NAME:    OWRT
+      WRT_SSID:    OWRT
+      WRT_WORD:    12345678
+      WRT_IP:      192.168.1.1
+      WRT_PW:      无
+      WRT_REPO:    https://github.com/VIKINGYFY/immortalwrt.git
+      WRT_BRANCH:  main
+      WRT_SOURCE:  VIKINGYFY/immortalwrt
+      WRT_PACKAGE: ""        # 由 Config/*.txt + Settings.sh 控制
+      WRT_TEST:    "false"
     secrets: inherit
