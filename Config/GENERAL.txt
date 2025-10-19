@@ -1,34 +1,58 @@
-#科学插件调整
+# ============================================
+# 科学环境与基础网络支持
+# ============================================
 CONFIG_PACKAGE_luci-app-homeproxy=y
 CONFIG_PACKAGE_luci-app-momo=y
 CONFIG_PACKAGE_luci-app-nikki=y
 CONFIG_PACKAGE_sing-box=y
-#CONFIG_PACKAGE_curl=y
-#CONFIG_PACKAGE_kmod-tun=y
-#CONFIG_PACKAGE_kmod-inet-diag=y
-#CONFIG_PACKAGE_openssh-sftp-server=y
-#增加插件
+
+# ============================================
+# 基础工具与诊断
+# ============================================
+CONFIG_PACKAGE_curl=y
+CONFIG_PACKAGE_kmod-tun=y
+CONFIG_PACKAGE_kmod-inet-diag=y
+CONFIG_PACKAGE_openssh-sftp-server=y
+CONFIG_PACKAGE_openssh-keygen=y
+CONFIG_PACKAGE_openssl-util=y
+CONFIG_PACKAGE_tcping=y
+CONFIG_PACKAGE_ip-full=y
+CONFIG_PACKAGE_jq=y
+CONFIG_PACKAGE_btop=y
+CONFIG_PACKAGE_usbutils=y
+CONFIG_PACKAGE_lsblk=y
+CONFIG_PACKAGE_fdisk=y
+CONFIG_PACKAGE_nand-utils=y
+CONFIG_PACKAGE_mmc-utils=y
+
+# ============================================
+# 常用 LuCI 插件
+# ============================================
+CONFIG_PACKAGE_luci-base=y
+CONFIG_PACKAGE_luci-compat=y
+CONFIG_PACKAGE_luci-lib-base=y
+CONFIG_PACKAGE_luci-lib-ipkg=y
+CONFIG_PACKAGE_luci-lua-runtime=y
+CONFIG_PACKAGE_luci-proto-bonding=y
+CONFIG_PACKAGE_luci-proto-relay=y
+
 CONFIG_PACKAGE_luci-app-autoreboot=y
 CONFIG_PACKAGE_luci-app-gecoosac=y
 CONFIG_PACKAGE_luci-app-netspeedtest=y
 CONFIG_PACKAGE_luci-app-partexp=y
-CONFIG_PACKAGE_luci-app-samba4=n
 CONFIG_PACKAGE_luci-app-tailscale=y
 CONFIG_PACKAGE_luci-app-upnp=y
 CONFIG_PACKAGE_luci-app-wolplus=y
-#删除插件
+CONFIG_PACKAGE_luci-app-samba4=y
 CONFIG_PACKAGE_luci-app-wol=n
-#参数调整
-CONFIG_CCACHE=y
-CONFIG_DEVEL=y
-CONFIG_TARGET_MULTI_PROFILE=y
-CONFIG_TARGET_PER_DEVICE_ROOTFS=y
-CONFIG_TARGET_ROOTFS_INITRAMFS=n
-#内核调整
+CONFIG_PACKAGE_luci-app-podman=y
+
+# ============================================
+# 内核与网络组件
+# ============================================
 CONFIG_PACKAGE_kmod-dsa=y
 CONFIG_PACKAGE_kmod-fs-btrfs=y
 CONFIG_PACKAGE_kmod-fuse=y
-CONFIG_PACKAGE_kmod-inet-diag=y
 CONFIG_PACKAGE_kmod-mtd-rw=y
 CONFIG_PACKAGE_kmod-netlink-diag=y
 CONFIG_PACKAGE_kmod-nft-bridge=y
@@ -41,72 +65,94 @@ CONFIG_PACKAGE_kmod-nft-offload=y
 CONFIG_PACKAGE_kmod-nft-queue=y
 CONFIG_PACKAGE_kmod-nft-socket=y
 CONFIG_PACKAGE_kmod-nft-tproxy=y
-CONFIG_PACKAGE_kmod-sound-core=y
-CONFIG_PACKAGE_kmod-tun=y
 CONFIG_PACKAGE_kmod-usb3=y
-CONFIG_PACKAGE_kmod-usb-audio=y
 CONFIG_PACKAGE_kmod-usb-core=y
 CONFIG_PACKAGE_kmod-usb-dwc3=y
-CONFIG_PACKAGE_kmod-usb-net=y
-CONFIG_PACKAGE_kmod-usb-net-cdc-eem=y
-CONFIG_PACKAGE_kmod-usb-net-cdc-ether=y
-CONFIG_PACKAGE_kmod-usb-net-cdc-mbim=y
-CONFIG_PACKAGE_kmod-usb-net-cdc-ncm=y
-CONFIG_PACKAGE_kmod-usb-net-cdc-subset=y
-CONFIG_PACKAGE_kmod-usb-net-huawei-cdc-ncm=y
-CONFIG_PACKAGE_kmod-usb-net-ipheth=y
-CONFIG_PACKAGE_kmod-usb-net-qmi-wwan=y
-CONFIG_PACKAGE_kmod-usb-net-qmi-wwan-fibocom=y
-CONFIG_PACKAGE_kmod-usb-net-qmi-wwan-quectel=y
-CONFIG_PACKAGE_kmod-usb-net-rndis=y
-CONFIG_PACKAGE_kmod-usb-net-rtl8150=y
-CONFIG_PACKAGE_kmod-usb-net-rtl8152=y
-CONFIG_PACKAGE_kmod-usb-ohci=y
 CONFIG_PACKAGE_kmod-usb-storage=y
 CONFIG_PACKAGE_kmod-usb-storage-extras=y
 CONFIG_PACKAGE_kmod-usb-storage-uas=y
-CONFIG_PACKAGE_kmod-usb-uhci=y
-CONFIG_PACKAGE_kmod-usb-xhci=y
+CONFIG_PACKAGE_kmod-usb-net=y
+CONFIG_PACKAGE_kmod-usb-net-cdc-ether=y
+CONFIG_PACKAGE_kmod-usb-net-qmi-wwan=y
 CONFIG_PACKAGE_kmod-wireguard=y
-#组件调整
+
+# ============================================
+# 组件与系统工具
+# ============================================
 CONFIG_PACKAGE_autocore=y
 CONFIG_PACKAGE_automount=y
 CONFIG_PACKAGE_blkid=y
-CONFIG_PACKAGE_cfdisk=y
-CONFIG_PACKAGE_cgdisk=y
-CONFIG_PACKAGE_coremark=y
 CONFIG_PACKAGE_cpufreq=y
 CONFIG_PACKAGE_dmesg=y
-CONFIG_PACKAGE_fdisk=y
-CONFIG_PACKAGE_gdisk=y
-CONFIG_PACKAGE_htop=y
 CONFIG_PACKAGE_iperf3=y
-CONFIG_PACKAGE_ip-full=y
-CONFIG_PACKAGE_libimobiledevice=y
-CONFIG_PACKAGE_lsblk=y
-CONFIG_PACKAGE_luci-base=y
-CONFIG_PACKAGE_luci-compat=y
-CONFIG_PACKAGE_luci-lib-base=y
-CONFIG_PACKAGE_luci-lib-ipkg=y
-CONFIG_PACKAGE_luci-lua-runtime=y
-CONFIG_PACKAGE_luci-proto-bonding=y
-CONFIG_PACKAGE_luci-proto-relay=y
-CONFIG_PACKAGE_mmc-utils=y
-CONFIG_PACKAGE_nand-utils=y
-CONFIG_PACKAGE_openssh-keygen=y
+CONFIG_PACKAGE_htop=y
 CONFIG_PACKAGE_openssh-sftp-server=y
-CONFIG_PACKAGE_openssl-util=y
-CONFIG_PACKAGE_sfdisk=y
-CONFIG_PACKAGE_sgdisk=y
 CONFIG_PACKAGE_usbmuxd=y
-CONFIG_PACKAGE_usbutils=y
 
-#Podman 的运行环境、网络虚拟接口更稳。
-#CONFIG_KERNEL_CGROUPS=y
-#CONFIG_KERNEL_CGROUP_PIDS=y
-#CONFIG_KERNEL_MEMCG=y
-#CONFIG_KERNEL_NAMESPACES=y
-#CONFIG_KERNEL_USER_NS=y
-#CONFIG_KERNEL_SECCOMP=y
-#CONFIG_KERNEL_SECCOMP_FILTER=y
-#CONFIG_KERNEL_KEYS=y
+# ============================================
+# 内核特性（容器/隔离）
+# ============================================
+CONFIG_KERNEL_CGROUPS=y
+CONFIG_KERNEL_NAMESPACES=y
+CONFIG_KERNEL_SECCOMP=y
+CONFIG_KERNEL_KEYS=y
+# 可根据需要开启：
+# CONFIG_KERNEL_CGROUP_PIDS=y
+# CONFIG_KERNEL_MEMCG=y
+# CONFIG_KERNEL_USER_NS=y
+# CONFIG_KERNEL_SECCOMP_FILTER=y
+
+# ============================================
+# 编译参数
+# ============================================
+CONFIG_CCACHE=y
+CONFIG_DEVEL=y
+CONFIG_TARGET_MULTI_PROFILE=y
+CONFIG_TARGET_PER_DEVICE_ROOTFS=y
+CONFIG_TARGET_ROOTFS_INITRAMFS=n
+
+# =========================
+# Podman 最优运行组件（完整）
+# =========================
+CONFIG_PACKAGE_luci-app-podman=y
+CONFIG_PACKAGE_podman=y
+CONFIG_PACKAGE_conmon=y
+CONFIG_PACKAGE_crun=y
+CONFIG_PACKAGE_catatonit=y        # 最小 init，处理僵尸进程
+CONFIG_PACKAGE_slirp4netns=y      # 无 root (rootless) 网络
+CONFIG_PACKAGE_fuse-overlayfs=y   # root/无 root 均可用的 overlay 存储
+CONFIG_PACKAGE_uidmap=y           # newuidmap/newgidmap，rootless 必需
+CONFIG_PACKAGE_netavark=y         # Podman 新网络栈（推荐）
+CONFIG_PACKAGE_aardvark-dns=y     # 与 netavark 配套的 DNS
+
+# 如果你习惯 CNI（不推荐与 netavark 混用），再加：
+# CONFIG_PACKAGE_cni-plugins=y
+
+# =========================
+# 内核能力（配合 rootless / namespace / seccomp）
+# 已在 Settings.sh 开启，但这里也显式保留，避免被覆盖
+# =========================
+CONFIG_KERNEL_CGROUPS=y
+CONFIG_KERNEL_CGROUP_PIDS=y
+CONFIG_KERNEL_MEMCG=y
+CONFIG_KERNEL_NAMESPACES=y
+CONFIG_KERNEL_USER_NS=y
+CONFIG_KERNEL_SECCOMP=y
+CONFIG_KERNEL_SECCOMP_FILTER=y
+CONFIG_KERNEL_KEYS=y
+
+# =========================
+# nftables / NAT / bridge（Podman 网络所需）
+# 你的 GENERAL 里已开启了 nft* 家族，这里强调保留
+# =========================
+CONFIG_PACKAGE_kmod-nft-core=y
+CONFIG_PACKAGE_kmod-nft-nat=y
+CONFIG_PACKAGE_kmod-nft-netdev=y
+CONFIG_PACKAGE_kmod-nft-offload=y
+CONFIG_PACKAGE_kmod-nft-bridge=y
+CONFIG_PACKAGE_kmod-nft-tproxy=y
+CONFIG_PACKAGE_kmod-nft-queue=y
+CONFIG_PACKAGE_kmod-nft-socket=y
+CONFIG_PACKAGE_kmod-nft-fib=y
+CONFIG_PACKAGE_kmod-nft-fullcone=y
+
