@@ -62,6 +62,7 @@ UPDATE_PACKAGE "qmodem" "FUjr/QModem" "main"
 UPDATE_PACKAGE "viking" "VIKINGYFY/packages" "main" "" "luci-app-timewol luci-app-wolplus"
 UPDATE_PACKAGE "vnt" "lmq8267/luci-app-vnt" "main"
 UPDATE_PACKAGE "sing-box" "SagerNet/sing-box" "main"
+UPDATE_PACKAGE "luci-app-momo" "someone/openwrt-luci-app-momo" "main"
 
 # -----------------------------
 # 附加插件
