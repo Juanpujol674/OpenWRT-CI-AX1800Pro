@@ -59,6 +59,8 @@ UPDATE_PACKAGE "qmodem" "FUjr/QModem" "main"
 UPDATE_PACKAGE "viking" "VIKINGYFY/packages" "main" "" "luci-app-timewol luci-app-wolplus"
 UPDATE_PACKAGE "vnt" "lmq8267/luci-app-vnt" "main"
 UPDATE_PACKAGE "sing-box" "SagerNet/sing-box" "main"
+# 示例：把 luci-app-momo 拉到 package/ 目录
+UPDATE_PACKAGE "luci-app-momo" "someone/openwrt-luci-app-momo" "main"
 # UPDATE_PACKAGE "dockerman" "lisaac/luci-app-dockerman" "master"
 
 # === 更新软件包版本 ===
