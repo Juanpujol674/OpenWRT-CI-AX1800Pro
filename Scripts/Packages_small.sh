@@ -1,15 +1,12 @@
 #!/bin/bash
 # ======================================================
-# Scripts/Packages_small.sh —— SMALL 固件专用（≤128MB 闪存）
-# 约定：本脚本在 wrt/ 根目录执行（WRT-CORE 已 cd ./wrt/ 再调用）
-# 目标：
-#   1) 只引入你要的极简外源包：momo(来自 nikkinikki-org) + nikki (+ gecoosac + netspeedtest)
-#   2) 提供 sing-box 兜底源码（即使 SMALL 默认 homeproxy=n）
+#  Scripts/Packages_small.sh
+#  轻量版：为 SMALL 机型（≤128MB 闪存）设计
+#  在 wrt 根目录执行（WRT-CORE.yml 已调整为 cd ./wrt/ 后调用）
 # ======================================================
 
-set -euo pipefail
-
-WRT_ROOT="$(pwd)"
+set -e
+WRT_ROOT="${PWD}"
 PKG_DIR="$WRT_ROOT/package"
 
 echo "=============================="
@@ -18,67 +15,72 @@ echo "  - WRT_ROOT : $WRT_ROOT"
 echo "  - PKG_DIR  : $PKG_DIR"
 echo "=============================="
 
-# 带 Token 的 https（规避少量环境对匿名 https 的限制）
-if [[ -n "${GITHUB_ACTOR:-}" && -n "${GITHUB_TOKEN:-}" ]]; then
-  git config --global url."https://${GITHUB_ACTOR}:${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
+mkdir -p "$PKG_DIR"
+
+# -------------------------------
+# 1) 兜底提供 sing-box（优先：feeds；否则从 ImmortalWrt/packages sparse 取 net/sing-box）
+# -------------------------------
+if ! find "$WRT_ROOT/feeds" -maxdepth 3 -type f -path "*/sing-box/Makefile" | grep -q . && [ ! -d "$PKG_DIR/sing-box" ]; then
+  echo ">> Adding sing-box (sparse from immortalwrt/packages)"
+  TMP_DIR="$(mktemp -d)"
+  git clone --depth=1 -b master --filter=blob:none --sparse https://github.com/immortalwrt/packages "$TMP_DIR"
+  ( cd "$TMP_DIR" && git sparse-checkout set net/sing-box )
+  # 移入本地 package/
+  cp -a "$TMP_DIR/net/sing-box" "$PKG_DIR/sing-box"
+  rm -rf "$TMP_DIR"
 fi
 
-# 稀疏克隆：只取子目录
-git_sparse_pick() {
-  # 用法：git_sparse_pick <dst_dir> <branch> <repo_url> <paths...>
-  local dst="$1" br="$2" url="$3"; shift 3
-  rm -rf "$dst" "_tmp_sparse.$$"
-  git clone --depth=1 -b "$br" --single-branch --filter=blob:none --sparse "$url" "_tmp_sparse.$$"
-  pushd "_tmp_sparse.$$" >/dev/null
-  git sparse-checkout set "$@"
-  mkdir -p "$dst"
-  for p in "$@"; do
-    if [[ -d "$p" ]]; then
-      cp -a "$p"/. "$dst/"
-    fi
-  done
-  popd >/dev/null
-  rm -rf "_tmp_sparse.$$"
-}
-
-# 1) sing-box 兜底：仅当源码树中缺失时补齐到 $PKG_DIR/sing-box
-if ! find "$WRT_ROOT/feeds" "$PKG_DIR" -maxdepth 3 -type f -path "*/sing-box/Makefile" | grep -q . ; then
-  echo ">> Adding lightweight sing-box (sbwml version) into $PKG_DIR/sing-box"
-  rm -rf "$PKG_DIR/sing-box"
-  git clone --depth=1 https://github.com/sbwml/sing-box "$PKG_DIR/sing-box"
-else
-  echo ">> sing-box already present in feeds/package."
+# -------------------------------
+# 2) 轻量插件集合（homeproxy/nikki/momo/…）
+#    注：momo 取自 nikkinikki-org/OpenWrt-momo 的 luci-app-momo 子目录
+# -------------------------------
+# homeproxy（如 SMALL 配置里是 n，不会安装，仅存在不影响）
+if [ ! -d "$PKG_DIR/homeproxy" ]; then
+  git clone --depth=1 https://github.com/VIKINGYFY/homeproxy "$PKG_DIR/homeproxy"
 fi
 
-# 2) 轻量插件集合（全部落在 $PKG_DIR 下）
-echo ">> Cloning small set packages into $PKG_DIR"
-rm -rf "$PKG_DIR/homeproxy" "$PKG_DIR/nikki" "$PKG_DIR/luci-app-momo" "$PKG_DIR/gecoosac" "$PKG_DIR/netspeedtest" 2>/dev/null || true
-
-# homeproxy 仅提供源码（SMALL 的 Config/Settings 默认是 n）
-git clone --depth=1 https://github.com/VIKINGYFY/homeproxy            "$PKG_DIR/homeproxy"
-git clone --depth=1 https://github.com/nikkinikki-org/OpenWrt-nikki   "$PKG_DIR/nikki"
-
-# momo（正确来源）：nikkinikki-org/OpenWrt-momo/luci-app-momo
-git_sparse_pick "$PKG_DIR/luci-app-momo" "main" "https://github.com/nikkinikki-org/OpenWrt-momo" "luci-app-momo"
-
-git clone --depth=1 https://github.com/lwb1978/openwrt-gecoosac       "$PKG_DIR/gecoosac"
-git clone --depth=1 https://github.com/sirpdboy/luci-app-netspeedtest "$PKG_DIR/netspeedtest"
-
-# 3) 主题：argon（体积小）
-if [[ ! -d "$PKG_DIR/luci-theme-argon" ]]; then
-  git clone --depth=1 -b openwrt-24.10 https://github.com/sbwml/luci-theme-argon "$PKG_DIR/luci-theme-argon"
-  git clone --depth=1 https://github.com/sbwml/luci-app-argon-config            "$PKG_DIR/luci-app-argon-config"
+# nikki
+if [ ! -d "$PKG_DIR/nikki" ]; then
+  git clone --depth=1 https://github.com/nikkinikki-org/OpenWrt-nikki "$PKG_DIR/nikki"
 fi
 
-# 4) 移除 SMALL 不需要的大包（避免误选）
-echo ">> Removing heavy packages not for SMALL"
-rm -rf "$PKG_DIR"/{docker,containerd,dockerman,podman,lucky,OpenClash,openwrt-passwall,openwrt-passwall2,qbittorrent,gost,nginx,adguardhome} 2>/dev/null || true
-rm -rf "$WRT_ROOT/feeds/packages/net"/{docker*,podman*,openclash*,qbittorrent*,v2ray*,xray*,gost*,adguardhome*,sing-box} 2>/dev/null || true
-rm -rf "$WRT_ROOT/feeds/luci/applications"/luci-app-{dockerman,podman,openclash,passwall*,qbittorrent,gost,adguardhome,lucky} 2>/dev/null || true
+# momo（只拉 luci-app-momo 子目录）
+if [ ! -d "$PKG_DIR/luci-app-momo" ]; then
+  TMP_DIR="$(mktemp -d)"
+  git clone --depth=1 --filter=blob:none --sparse https://github.com/nikkinikki-org/OpenWrt-momo "$TMP_DIR"
+  ( cd "$TMP_DIR" && git sparse-checkout set luci-app-momo )
+  cp -a "$TMP_DIR/luci-app-momo" "$PKG_DIR/luci-app-momo"
+  rm -rf "$TMP_DIR"
+fi
 
-# 5) 清理 .git，减小体积
-find "$PKG_DIR" -type d -name ".git" -exec rm -rf {} + 2>/dev/null || true
+# 其它轻插件（按需）
+[ -d "$PKG_DIR/gecoosac" ] || git clone --depth=1 https://github.com/lwb1978/openwrt-gecoosac "$PKG_DIR/gecoosac"
+[ -d "$PKG_DIR/netspeedtest" ] || git clone --depth=1 https://github.com/sirpdboy/luci-app-netspeedtest "$PKG_DIR/netspeedtest"
 
+# -------------------------------
+# 3) 仅保留轻主题 argon（主题与配置）
+# -------------------------------
+rm -rf "$WRT_ROOT/feeds/luci/themes/luci-theme-"*
+[ -d "$PKG_DIR/luci-theme-argon" ] || git clone --depth=1 -b openwrt-24.10 https://github.com/sbwml/luci-theme-argon "$PKG_DIR/luci-theme-argon"
+[ -d "$PKG_DIR/luci-app-argon-config" ] || git clone --depth=1 https://github.com/sbwml/luci-app-argon-config "$PKG_DIR/luci-app-argon-config"
+
+# -------------------------------
+# 4) 清理不适合 SMALL 的大型包（安全起见）
+# -------------------------------
+echo ">> Removing heavy packages (docker/podman/lucky/qbittorrent/gost/nginx/adguardhome …)"
+rm -rf "$PKG_DIR"/{docker,containerd,dockerman,podman,lucky,openclash,passwall*,qbittorrent,gost,nginx,adguardhome}
+rm -rf "$WRT_ROOT/feeds/packages/net"/{docker*,podman*,openclash*,qbittorrent*,v2ray*,xray*,gost*,adguardhome*}
+rm -rf "$WRT_ROOT/feeds/luci/applications"/luci-app-{dockerman,podman,openclash,passwall*,qbittorrent,gost,adguardhome,lucky}
+
+# -------------------------------
+# 5) 清理冗余 .git 目录
+# -------------------------------
+find "$WRT_ROOT/feeds" -type d -name ".git" -prune -exec rm -rf {} +
+find "$PKG_DIR" -type d -name ".git" -prune -exec rm -rf {} +
+
+# -------------------------------
+# ✅ 完成
+# -------------------------------
 echo ">> SMALL package set prepared successfully!"
 echo ">> Installed lightweight apps:"
-ls -1 "$PKG_DIR" | grep -E "homeproxy|nikki|luci-app-momo|gecoosac|netspeedtest|sing-box" || echo "⚠️ none"
+ls -1 "$PKG_DIR" | grep -E "homeproxy|nikki|luci-app-momo|gecoosac|netspeedtest|sing-box" || echo "⚠️ No small packages detected!"
