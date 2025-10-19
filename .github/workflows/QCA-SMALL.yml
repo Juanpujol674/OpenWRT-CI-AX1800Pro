@@ -8,10 +8,6 @@ on:
 permissions:
   contents: write           # 供 WRT-CORE.yml 中发布 Release 使用
 
-concurrency:
-  group: qca-small-${{ github.ref }}-${{ matrix.wrt_config }}
-  cancel-in-progress: true
-
 jobs:
   build:
     strategy:
@@ -20,6 +16,10 @@ jobs:
         wrt_config: [IPQ60XX-SMALL-WIFI-YES, IPQ60XX-SMALL-WIFI-NO]
 
     name: SMALL | ${{ matrix.wrt_config }}
+    concurrency:
+      group: qca-small-${{ github.ref }}-${{ matrix.wrt_config }}
+      cancel-in-progress: true
+
     uses: ./.github/workflows/WRT-CORE.yml
     with:
       WRT_CONFIG:  ${{ matrix.wrt_config }}
