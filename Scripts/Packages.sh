@@ -1,34 +1,41 @@
 #!/bin/bash
+# ============================================
+# OpenWRT-CI Package Fetch & Update Script
+# 作者: JuanPujol 项目维护版
+# 功能: 管理第三方包拉取、更新、feed修复、依赖保障
+# ============================================
 
-# 安装和更新软件包
+set -e
+
+# --------------------------------------------
+# 函数: 安装或更新单个包
+# --------------------------------------------
 UPDATE_PACKAGE() {
 	local PKG_NAME=$1
 	local PKG_REPO=$2
 	local PKG_BRANCH=$3
 	local PKG_SPECIAL=$4
-	local PKG_LIST=("$PKG_NAME" $5)  # 第5个参数为自定义名称列表
+	local PKG_LIST=("$PKG_NAME" $5)
 	local REPO_NAME=${PKG_REPO#*/}
 
 	echo " "
+	echo "==== Updating package: $PKG_NAME from $PKG_REPO ($PKG_BRANCH)"
 
-	# 删除本地可能存在的不同名称的软件包
+	# 删除同名旧包（防冲突）
 	for NAME in "${PKG_LIST[@]}"; do
-		echo "Search directory: $NAME"
 		local FOUND_DIRS=$(find ../feeds/luci/ ../feeds/packages/ -maxdepth 3 -type d -iname "*$NAME*" 2>/dev/null)
 		if [ -n "$FOUND_DIRS" ]; then
 			while read -r DIR; do
 				rm -rf "$DIR"
-				echo "Delete directory: $DIR"
+				echo "→ Removed: $DIR"
 			done <<< "$FOUND_DIRS"
-		else
-			echo "Not found directory: $NAME"
 		fi
 	done
 
-	# 克隆 GitHub 仓库
+	# 克隆新仓库
 	git clone --depth=1 --single-branch --branch $PKG_BRANCH "https://github.com/$PKG_REPO.git"
 
-	# 处理克隆的仓库
+	# 处理特殊结构
 	if [[ "$PKG_SPECIAL" == "pkg" ]]; then
 		find ./$REPO_NAME/*/ -maxdepth 3 -type d -iname "*$PKG_NAME*" -prune -exec cp -rf {} ./ \;
 		rm -rf ./$REPO_NAME/
@@ -37,7 +44,9 @@ UPDATE_PACKAGE() {
 	fi
 }
 
-# === 常规包克隆 ===
+# --------------------------------------------
+# 第三方包清单
+# --------------------------------------------
 UPDATE_PACKAGE "kucat" "sirpdboy/luci-theme-kucat" "js"
 UPDATE_PACKAGE "homeproxy" "VIKINGYFY/homeproxy" "main"
 UPDATE_PACKAGE "nikki" "nikkinikki-org/OpenWrt-nikki" "main"
@@ -59,53 +68,20 @@ UPDATE_PACKAGE "qmodem" "FUjr/QModem" "main"
 UPDATE_PACKAGE "viking" "VIKINGYFY/packages" "main" "" "luci-app-timewol luci-app-wolplus"
 UPDATE_PACKAGE "vnt" "lmq8267/luci-app-vnt" "main"
 UPDATE_PACKAGE "sing-box" "SagerNet/sing-box" "main"
-# 示例：把 luci-app-momo 拉到 package/ 目录
-UPDATE_PACKAGE "luci-app-momo" "someone/openwrt-luci-app-momo" "main"
-# UPDATE_PACKAGE "dockerman" "lisaac/luci-app-dockerman" "master"
 
-# === 更新软件包版本 ===
-UPDATE_VERSION() {
-	local PKG_NAME=$1
-	local PKG_MARK=${2:-false}
-	local PKG_FILES=$(find ./ ../feeds/packages/ -maxdepth 3 -type f -wholename "*/$PKG_NAME/Makefile")
+# --------------------------------------------
+# 必要组件克隆（如 Lucky、Daed、Natter2 等）
+# --------------------------------------------
+git clone https://github.com/sirpdboy/luci-app-lucky.git package/lucky
 
-	if [ -z "$PKG_FILES" ]; then
-		echo "$PKG_NAME not found!"
-		return
-	fi
+rm -rf ../feeds/luci/applications/luci-app-{dae*}
+rm -rf ../feeds/packages/net/{dae*}
 
-	echo -e "\n$PKG_NAME version update has started!"
+# QiuSimons daed
+git clone https://github.com/QiuSimons/luci-app-daed package/dae
+mkdir -p Package/libcron && wget -O Package/libcron/Makefile https://raw.githubusercontent.com/immortalwrt/packages/refs/heads/master/libs/libcron/Makefile
 
-	for PKG_FILE in $PKG_FILES; do
-		local PKG_REPO=$(grep -Po "PKG_SOURCE_URL:=https://.*github.com/\K[^/]+/[^/]+(?=.*)" $PKG_FILE)
-		local PKG_TAG=$(curl -sL "https://api.github.com/repos/$PKG_REPO/releases" | jq -r "map(select(.prerelease == $PKG_MARK)) | first | .tag_name")
-
-		local OLD_VER=$(grep -Po "PKG_VERSION:=\K.*" "$PKG_FILE")
-		local OLD_URL=$(grep -Po "PKG_SOURCE_URL:=\K.*" "$PKG_FILE")
-		local OLD_FILE=$(grep -Po "PKG_SOURCE:=\K.*" "$PKG_FILE")
-		local OLD_HASH=$(grep -Po "PKG_HASH:=\K.*" "$PKG_FILE")
-
-		local PKG_URL=$([[ "$OLD_URL" == *"releases"* ]] && echo "${OLD_URL%/}/$OLD_FILE" || echo "${OLD_URL%/}")
-		local NEW_VER=$(echo $PKG_TAG | sed -E 's/[^0-9]+/\./g; s/^\.|\.$//g')
-		local NEW_URL=$(echo $PKG_URL | sed "s/\$(PKG_VERSION)/$NEW_VER/g; s/\$(PKG_NAME)/$PKG_NAME/g")
-		local NEW_HASH=$(curl -sL "$NEW_URL" | sha256sum | cut -d ' ' -f 1)
-
-		echo "old version: $OLD_VER $OLD_HASH"
-		echo "new version: $NEW_VER $NEW_HASH"
-
-		if [[ "$NEW_VER" =~ ^[0-9].* ]] && dpkg --compare-versions "$OLD_VER" lt "$NEW_VER"; then
-			sed -i "s/PKG_VERSION:=.*/PKG_VERSION:=$NEW_VER/g" "$PKG_FILE"
-			sed -i "s/PKG_HASH:=.*/PKG_HASH:=$NEW_HASH/g" "$PKG_FILE"
-			echo "$PKG_FILE version has been updated!"
-		else
-			echo "$PKG_FILE version is already the latest!"
-		fi
-	done
-}
-
-UPDATE_VERSION "tailscale"
-
-# === Git稀疏克隆，只克隆指定目录到本地 ===
+# 扩展组件仓库
 function git_sparse_clone() {
 	branch="$1" repourl="$2" && shift 2
 	git clone --depth=1 -b $branch --single-branch --filter=blob:none --sparse $repourl
@@ -115,36 +91,32 @@ function git_sparse_clone() {
 	cd .. && rm -rf $repodir
 }
 
-# === 拉取Lucky最新版源码 ===
-git clone https://github.com/sirpdboy/luci-app-lucky.git package/lucky
-# git clone https://github.com/gdy666/luci-app-lucky package/lucky
-
-# === 删除官方默认插件 ===
-rm -rf ../feeds/luci/applications/luci-app-{dae*}
-rm -rf ../feeds/packages/net/{dae*}
-
-# === QiuSimons luci-app-daed ===
-git clone https://github.com/QiuSimons/luci-app-daed package/dae
-mkdir -p Package/libcron && wget -O Package/libcron/Makefile https://raw.githubusercontent.com/immortalwrt/packages/refs/heads/master/libs/libcron/Makefile
-
-# === 拉取小包集 ===
 git_sparse_clone main https://github.com/kenzok8/small-package daed-next luci-app-daed-next gost luci-app-gost luci-app-nginx luci-app-adguardhome
 git_sparse_clone main https://github.com/kiddin9/kwrt-packages natter2 luci-app-natter2 luci-app-cloudflarespeedtest luci-app-caddy openwrt-caddy
 
+# Podman 支持
 git clone --depth 1 --single-branch https://github.com/breeze303/openwrt-podman package/podman
 
-# === 提供 sing-box 包，满足 luci-app-homeproxy 依赖（与 sbwml 版本最匹配） ===
-if [ ! -d "package/sing-box" ] && ! find feeds -maxdepth 3 -type f -path "*/sing-box/Makefile" | grep -q .; then
-	echo ">> sing-box not found, cloning sbwml/sing-box..."
-	rm -rf package/*/sing-box feeds/*/sing-box || true
-	git clone --depth=1 https://github.com/sbwml/sing-box package/sing-box && echo ">> Added sing-box successfully."
-else
-	echo ">> sing-box already exists, skip cloning."
-fi
-
-# === 安装所有 feeds ===
+# 更新 feeds
+echo ">> Updating and installing all feeds..."
+./scripts/feeds update -a
 ./scripts/feeds install -a
 
-# === 修复 nginx 配置 ===
-wget "https://gitee.com/white-wolf-vvvk/DK8sDDosFirewall/raw/main/openwrtnginx.conf" -O ../feeds/packages/net/nginx-util/files/nginx.config
-cat ../feeds/packages/net/nginx-util/files/uci.conf.template
+# --------------------------------------------
+# 确保 homeproxy 依赖的 sing-box 存在
+# --------------------------------------------
+if [ ! -d "package/sing-box" ] && ! find feeds -maxdepth 3 -type f -path "*/sing-box/Makefile" | grep -q .; then
+  echo ">> Fetching sing-box package (for luci-app-homeproxy dependency)..."
+  rm -rf package/*/sing-box feeds/*/sing-box || true
+  git clone --depth=1 https://github.com/sbwml/sing-box package/sing-box
+  echo ">> sing-box package added successfully."
+fi
+
+# --------------------------------------------
+# 验证：是否成功拉取 sing-box
+# --------------------------------------------
+if [ -d "package/sing-box" ]; then
+  echo "✅ sing-box detected at: package/sing-box"
+else
+  echo "⚠️  WARNING: sing-box not found after feeds install. Homeproxy may fail."
+fi
