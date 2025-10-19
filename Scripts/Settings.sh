@@ -68,9 +68,7 @@ fi
 # #修复dropbear
 sed -i "s/Interface/DirectInterface/" ./package/network/services/dropbear/files/dropbear.config
 
-# 想要剔除的
-# echo "CONFIG_PACKAGE_htop=n" >> ./.config
-# echo "CONFIG_PACKAGE_iperf3=n" >> ./.config
+# 不必要或冲突的插件关闭
 echo "CONFIG_PACKAGE_luci-app-wolplus=n" >> ./.config
 echo "CONFIG_PACKAGE_luci-app-tailscale=n" >> ./.config
 echo "CONFIG_PACKAGE_luci-app-advancedplus=n" >> ./.config
@@ -80,98 +78,37 @@ echo "CONFIG_PACKAGE_luci-theme-kucat=n" >> ./.config
 echo "CONFIG_CGROUPS=y" >> ./.config
 echo "CONFIG_CPUSETS=y" >> ./.config
 
-# 可以让FinalShell查看文件列表并且ssh连上不会自动断开
+# 基础工具支持
 echo "CONFIG_PACKAGE_openssh-sftp-server=y" >> ./.config
-# 解析、查询、操作和格式化 JSON 数据
 echo "CONFIG_PACKAGE_jq=y" >> ./.config
-# base64 修改码云上的内容 需要用到
 echo "CONFIG_PACKAGE_coreutils-base64=y" >> ./.config
 echo "CONFIG_PACKAGE_coreutils=y" >> ./.config
-# 简单明了的系统资源占用查看工具
 echo "CONFIG_PACKAGE_btop=y" >> ./.config
-# 多网盘存储
-# echo "CONFIG_PACKAGE_luci-app-alist=y" >> ./.config
 echo "CONFIG_PACKAGE_luci-app-openlist2=y" >> ./.config
-# 强大的工具(需要添加源或git clone)
 echo "CONFIG_PACKAGE_luci-app-lucky=y" >> ./.config
-# 网络通信工具
 echo "CONFIG_PACKAGE_curl=y" >> ./.config
 echo "CONFIG_PACKAGE_tcping=y" >> ./.config
-# # BBR 拥塞控制算法(终端侧) + CAKE 一种现代化的队列管理算法(路由侧)
-# echo "CONFIG_PACKAGE_kmod-tcp-bbr=y" >> ./.config
-# # echo "CONFIG_DEFAULT_tcp_bbr=y" >> ./.config
-# # 更改默认的拥塞控制算法为cubic
-# echo "CONFIG_DEFAULT_tcp_cubic=y" >> ./.config
-# 磁盘管理
-# echo "CONFIG_PACKAGE_luci-app-diskman=y" >> ./.config
 echo "CONFIG_PACKAGE_cfdisk=y" >> ./.config
-# docker(只能集成)
-# echo "CONFIG_PACKAGE_luci-app-dockerman=y" >> ./.config
-# Podman
 echo "CONFIG_PACKAGE_luci-app-podman=y" >> ./.config
-# qBittorrent
-# echo "CONFIG_PACKAGE_luci-app-qbittorrent=y" >> ./.config
-# 强大的工具Lucky大吉(需要添加源或git clone)
 echo "CONFIG_PACKAGE_luci-app-lucky=y" >> ./.config
-# Caddy
 echo "CONFIG_PACKAGE_luci-app-caddy=y" >> ./.config
-# V2rayA
-# echo "CONFIG_PACKAGE_luci-app-v2raya=y" >> ./.config
-# echo "CONFIG_PACKAGE_v2ray-core=y" >> ./.config
-# echo "CONFIG_PACKAGE_v2ray-geoip=y" >> ./.config
-# echo "CONFIG_PACKAGE_v2ray-geosite=y" >> ./.config
-# Natter2 报错
-# echo "CONFIG_PACKAGE_luci-app-natter2=y" >> ./.config
-# 文件管理器
 echo "CONFIG_PACKAGE_luci-app-filemanager=y" >> ./.config
-# 基于Golang的多协议转发工具
 echo "CONFIG_PACKAGE_luci-app-gost=y" >> ./.config
-# Git
 echo "CONFIG_PACKAGE_git-http=y" >> ./.config
-# Nginx替换Uhttpd
-# echo "CONFIG_PACKAGE_nginx-mod-luci=y" >> ./.config
-# Nginx的图形化界面
 echo "CONFIG_PACKAGE_luci-app-nginx=y" >> ./.config
-# HAProxy 比Nginx更强大的反向代理服务器
-# echo "CONFIG_PACKAGE_luci-app-haproxy-tcp=y" >> ./.config
-# Adguardhome去广告
 echo "CONFIG_PACKAGE_luci-app-adguardhome=y" >> ./.config
-# cloudflre速度筛选器
-# echo "CONFIG_PACKAGE_luci-app-cloudflarespeedtest=y" >> ./.config
-# OpenClash
-# echo "CONFIG_PACKAGE_luci-app-openclash=y" >> ./.config
-# nfs-kernel-server共享
-# echo "CONFIG_PACKAGE_nfs-kernel-server=y" >> ./.config
-# Kiddin9 luci-app-nfs
-# echo "CONFIG_PACKAGE_luci-app-nfs=y" >> ./.config
-# zoneinfo-asia tzdata（时区数据库）的一部分，只包含亚洲相关的时区数据 zoneinfo-all全部时区（体积较大，不推荐在嵌入设备）
 echo "CONFIG_PACKAGE_zoneinfo-asia=y" >> ./.config 
-# Caddy
-# echo "CONFIG_PACKAGE_luci-app-caddy=y" >> ./.config
-# Openssl
-# echo "CONFIG_PACKAGE_openssl-util=y" >> ./.config
-# dig命令
 echo "CONFIG_PACKAGE_bind-dig=y" >> ./.config
-# ss 网络抓包工具
 echo "CONFIG_PACKAGE_ss=y" >> ./.config
-# luci-app-turboacc
 echo "CONFIG_PACKAGE_luci-app-turboacc=y" >> ./.config
 
-#去掉上面不想要的
-#echo "CONFIG_PACKAGE_luci-app-nginx=n" >> ./.config
-#echo "CONFIG_PACKAGE_luci-app-caddy=n" >> ./.config
-#echo "CONFIG_PACKAGE_luci-app-adguardhome=n" >> ./.config
-#echo "CONFIG_PACKAGE_luci-app-dockerman=n" >> ./.config
-#echo "CONFIG_PACKAGE_luci-app-homeproxy=n" >> ./.config
-
 # =========================
-# SMALL 机型体积保护（仅当配置名包含 small/samll 时生效）
+# SMALL 机型体积保护（small/samll）
 # =========================
 case "${WRT_CONFIG,,}" in
   *small*|*samll*)
     echo ">> SMALL profile detected, applying minimal/safe package set"
 
-    # 科学环境：你要求的最小集（这里再次覆盖，防止前面步骤改动）
     cat >> ./.config << 'EOF_SM_MIN'
 CONFIG_PACKAGE_luci-app-homeproxy=n
 CONFIG_PACKAGE_luci-app-momo=y
@@ -179,7 +116,6 @@ CONFIG_PACKAGE_luci-app-nikki=y
 CONFIG_PACKAGE_sing-box=y
 EOF_SM_MIN
 
-    # 常用功能白名单（确保不会被其它逻辑关闭）
     cat >> ./.config << 'EOF_SM_WHITE'
 CONFIG_PACKAGE_luci-app-autoreboot=y
 CONFIG_PACKAGE_luci-app-gecoosac=y
@@ -188,14 +124,11 @@ CONFIG_PACKAGE_luci-app-partexp=y
 CONFIG_PACKAGE_luci-app-tailscale=y
 CONFIG_PACKAGE_luci-app-upnp=y
 CONFIG_PACKAGE_luci-app-wolplus=y
-#CONFIG_PACKAGE_luci-app-wol=n
 CONFIG_PACKAGE_luci-app-adguardhome=y
 CONFIG_PACKAGE_adguardhome=y
 EOF_SM_WHITE
 
-    # 常见大体积/依赖复杂包：一律关闭（如前面被打开，这里覆盖成 n）
     cat >> ./.config << 'EOF_SM_BLOCK'
-# 广告/代理/容器/下载等重型组件
 CONFIG_PACKAGE_luci-app-openclash=n
 CONFIG_PACKAGE_openclash=n
 CONFIG_PACKAGE_luci-app-lucky=n
@@ -212,20 +145,27 @@ CONFIG_PACKAGE_gost=n
 CONFIG_PACKAGE_luci-app-nginx=n
 CONFIG_PACKAGE_nginx-mod-luci=n
 CONFIG_PACKAGE_luci-app-filemanager=n
-# 工具类（按需再裁剪）
 CONFIG_PACKAGE_btop=n
 CONFIG_PACKAGE_bind-dig=n
 CONFIG_PACKAGE_coreutils=n
 CONFIG_PACKAGE_coreutils-base64=n
-# 如空间紧张，可禁用加速
-# CONFIG_PACKAGE_luci-app-turboacc=n
 EOF_SM_BLOCK
 
-    # 若源码里没有 sing-box 包，自动降级为 n，避免“no such package: sing-box”
+    # sing-box 降级保护
     if ! find feeds -maxdepth 3 -type f -path "*/sing-box/Makefile" | grep -q . && [ ! -d package/sing-box ]; then
       echo "CONFIG_PACKAGE_sing-box=n" >> ./.config
-      echo ">> WARNING: sing-box package not found in feeds or package tree. It was disabled to avoid build failure."
+      echo ">> WARNING: sing-box package not found, disabled to avoid build failure."
     fi
     ;;
 esac
 
+# ============================================
+# 大闪存机型防护：禁用 sqm-scripts-nss 打包冲突
+# ============================================
+case "${WRT_CONFIG,,}" in
+  *wifi-yes*|*wifi-no*)
+    echo ">> Disable sqm-scripts-nss to prevent CONTROL conflict"
+    echo "CONFIG_PACKAGE_sqm-scripts-nss=n" >> ./.config
+    echo "CONFIG_PACKAGE_sqm-scripts=y" >> ./.config
+    ;;
+esac
