@@ -1,116 +1,109 @@
 #!/bin/bash
+# ======================================================
+# Scripts/Settings.sh  —— 通用设置
+# - 不再写任何 CONFIG_FEED_*（会破坏 Kconfig）
+# - QUALCOMMAX 平台保持 NSS 友好
+# - SMALL 机型：体积保护 + 默认用普通 sqm-scripts（禁用 sqm-scripts-nss）
+# - 末尾附 Podman 最优（仅非 SMALL）
+# ======================================================
+set -e
 
-# ============================================
-# 基础系统调整
-# ============================================
-
-# 修改默认主题
+# ---------- LuCI 主题/标识 ----------
 sed -i "s/luci-theme-bootstrap/luci-theme-$WRT_THEME/g" $(find ./feeds/luci/collections/ -type f -name "Makefile")
-# 修改 immortalwrt.lan 关联 IP
 sed -i "s/192\.168\.[0-9]*\.[0-9]*/$WRT_IP/g" $(find ./feeds/luci/modules/luci-mod-system/ -type f -name "flash.js")
-# 添加编译日期标识
 sed -i "s/(\(luciversion || ''\))/(\1) + (' \/ $WRT_MARK-$WRT_DATE')/g" $(find ./feeds/luci/modules/luci-mod-status/ -type f -name "10_system.js")
 
-# ============================================
-# 无线配置修改
-# ============================================
+# ---------- WiFi 默认 ----------
 WIFI_SH=$(find ./target/linux/{mediatek/filogic,qualcommax}/base-files/etc/uci-defaults/ -type f -name "*set-wireless.sh" 2>/dev/null)
 WIFI_UC="./package/network/config/wifi-scripts/files/lib/wifi/mac80211.uc"
 if [ -f "$WIFI_SH" ]; then
-	sed -i "s/BASE_SSID='.*'/BASE_SSID='$WRT_SSID'/g" $WIFI_SH
-	sed -i "s/BASE_WORD='.*'/BASE_WORD='$WRT_WORD'/g" $WIFI_SH
+  sed -i "s/BASE_SSID='.*'/BASE_SSID='$WRT_SSID'/g" $WIFI_SH
+  sed -i "s/BASE_WORD='.*'/BASE_WORD='$WRT_WORD'/g" $WIFI_SH
 elif [ -f "$WIFI_UC" ]; then
-	sed -i "s/ssid='.*'/ssid='$WRT_SSID'/g" $WIFI_UC
-	sed -i "s/key='.*'/key='$WRT_WORD'/g" $WIFI_UC
-	sed -i "s/country='.*'/country='CN'/g" $WIFI_UC
-	sed -i "s/encryption='.*'/encryption='psk2+ccmp'/g" $WIFI_UC
+  sed -i "s/ssid='.*'/ssid='$WRT_SSID'/g" $WIFI_UC
+  sed -i "s/key='.*'/key='$WRT_WORD'/g" $WIFI_UC
+  sed -i "s/country='.*'/country='CN'/g" $WIFI_UC
+  sed -i "s/encryption='.*'/encryption='psk2+ccmp'/g" $WIFI_UC
 fi
 
-# ============================================
-# 系统默认参数
-# ============================================
+# ---------- 系统默认 ----------
 CFG_FILE="./package/base-files/files/bin/config_generate"
 sed -i "s/192\.168\.[0-9]*\.[0-9]*/$WRT_IP/g" $CFG_FILE
 sed -i "s/hostname='.*'/hostname='$WRT_NAME'/g" $CFG_FILE
 
-echo "CONFIG_PACKAGE_luci=y" >> ./.config
-echo "CONFIG_LUCI_LANG_zh_Hans=y" >> ./.config
-echo "CONFIG_PACKAGE_luci-theme-$WRT_THEME=y" >> ./.config
-echo "CONFIG_PACKAGE_luci-app-$WRT_THEME-config=y" >> ./.config
+# ---------- 基础 LuCI ----------
+{
+  echo "CONFIG_PACKAGE_luci=y"
+  echo "CONFIG_LUCI_LANG_zh_Hans=y"
+  echo "CONFIG_PACKAGE_luci-theme-$WRT_THEME=y"
+  echo "CONFIG_PACKAGE_luci-app-$WRT_THEME-config=y"
+} >> ./.config
 
-# 追加自定义插件
+# ---------- 额外手动开关（来自 workflow 变量） ----------
 if [ -n "$WRT_PACKAGE" ]; then
-	echo -e "$WRT_PACKAGE" >> ./.config
+  echo -e "$WRT_PACKAGE" >> ./.config
 fi
 
-# ============================================
-# 高通平台调整
-# ============================================
+# ---------- QUALCOMMAX 平台（保留 NSS 相关习惯） ----------
 DTS_PATH="./target/linux/qualcommax/files/arch/arm64/boot/dts/qcom/"
 if [[ "${WRT_TARGET^^}" == *"QUALCOMMAX"* ]]; then
-	echo "CONFIG_FEED_nss_packages=n" >> ./.config
-	echo "CONFIG_FEED_sqm_scripts_nss=n" >> ./.config
-	echo "CONFIG_PACKAGE_luci-app-sqm=y" >> ./.config
-	echo "CONFIG_PACKAGE_sqm-scripts-nss=y" >> ./.config
-	echo "CONFIG_NSS_FIRMWARE_VERSION_11_4=n" >> ./.config
-	if [[ "${WRT_CONFIG,,}" == *"ipq50"* ]]; then
-		echo "CONFIG_NSS_FIRMWARE_VERSION_12_2=y" >> ./.config
-	else
-		echo "CONFIG_NSS_FIRMWARE_VERSION_12_5=y" >> ./.config
-	fi
-	if [[ "${WRT_CONFIG,,}" == *"wifi"* && "${WRT_CONFIG,,}" == *"no"* ]]; then
-		find $DTS_PATH -type f ! -iname '*nowifi*' -exec sed -i 's/ipq\(6018\|8074\).dtsi/ipq\1-nowifi.dtsi/g' {} +
-		echo "qualcommax set up nowifi successfully!"
-	fi
+  # 大内存版：保持 NSS 版 SQM（你原来的习惯）
+  if [[ "${WRT_CONFIG,,}" != *"small"* && "${WRT_CONFIG,,}" != *"samll"* ]]; then
+    echo "CONFIG_PACKAGE_luci-app-sqm=y"        >> ./.config
+    echo "CONFIG_PACKAGE_sqm-scripts-nss=y"    >> ./.config
+  fi
+
+  # 固件分支选择
+  echo "CONFIG_NSS_FIRMWARE_VERSION_11_4=n" >> ./.config
+  if [[ "${WRT_CONFIG,,}" == *"ipq50"* ]]; then
+    echo "CONFIG_NSS_FIRMWARE_VERSION_12_2=y" >> ./.config
+  else
+    echo "CONFIG_NSS_FIRMWARE_VERSION_12_5=y" >> ./.config
+  fi
+
+  # 无 WiFi 变体：替换 nowifi dtsi
+  if [[ "${WRT_CONFIG,,}" == *"wifi"* && "${WRT_CONFIG,,}" == *"no"* ]]; then
+    find $DTS_PATH -type f ! -iname '*nowifi*' -exec sed -i 's/ipq\(6018\|8074\).dtsi/ipq\1-nowifi.dtsi/g' {} +
+    echo "qualcommax set up nowifi successfully!"
+  fi
 fi
 
-# 修复 dropbear
+# ---------- 修复 dropbear ----------
 sed -i "s/Interface/DirectInterface/" ./package/network/services/dropbear/files/dropbear.config
 
-# ============================================
-# 常规精简与通用组件
-# ============================================
-echo "CONFIG_PACKAGE_luci-app-wolplus=n" >> ./.config
-echo "CONFIG_PACKAGE_luci-app-tailscale=n" >> ./.config
-echo "CONFIG_PACKAGE_luci-app-advancedplus=n" >> ./.config
-echo "CONFIG_PACKAGE_luci-theme-kucat=n" >> ./.config
+# ---------- 你常用的基础工具 ----------
+{
+  echo "CONFIG_CGROUPS=y"
+  echo "CONFIG_CPUSETS=y"
+  echo "CONFIG_PACKAGE_openssh-sftp-server=y"
+  echo "CONFIG_PACKAGE_jq=y"
+  echo "CONFIG_PACKAGE_coreutils-base64=y"
+  echo "CONFIG_PACKAGE_coreutils=y"
+  echo "CONFIG_PACKAGE_btop=y"
+  echo "CONFIG_PACKAGE_luci-app-openlist2=y"
+  echo "CONFIG_PACKAGE_luci-app-lucky=y"
+  echo "CONFIG_PACKAGE_curl=y"
+  echo "CONFIG_PACKAGE_tcping=y"
+  echo "CONFIG_PACKAGE_cfdisk=y"
+  echo "CONFIG_PACKAGE_luci-app-podman=y"
+  echo "CONFIG_PACKAGE_luci-app-caddy=y"
+  echo "CONFIG_PACKAGE_luci-app-filemanager=y"
+  echo "CONFIG_PACKAGE_luci-app-gost=y"
+  echo "CONFIG_PACKAGE_git-http=y"
+  echo "CONFIG_PACKAGE_luci-app-nginx=y"
+  echo "CONFIG_PACKAGE_luci-app-adguardhome=y"
+  echo "CONFIG_PACKAGE_zoneinfo-asia=y"
+  echo "CONFIG_PACKAGE_bind-dig=y"
+  echo "CONFIG_PACKAGE_ss=y"
+  echo "CONFIG_PACKAGE_luci-app-turboacc=y"
+} >> ./.config
 
-# CPU/容器支持
-echo "CONFIG_CGROUPS=y" >> ./.config
-echo "CONFIG_CPUSETS=y" >> ./.config
-
-# 工具与实用组件
-cat >> ./.config << 'EOF_TOOLS'
-CONFIG_PACKAGE_openssh-sftp-server=y
-CONFIG_PACKAGE_jq=y
-CONFIG_PACKAGE_coreutils-base64=y
-CONFIG_PACKAGE_coreutils=y
-CONFIG_PACKAGE_btop=y
-CONFIG_PACKAGE_luci-app-openlist2=y
-CONFIG_PACKAGE_luci-app-lucky=y
-CONFIG_PACKAGE_curl=y
-CONFIG_PACKAGE_tcping=y
-CONFIG_PACKAGE_cfdisk=y
-CONFIG_PACKAGE_luci-app-podman=y
-CONFIG_PACKAGE_luci-app-caddy=y
-CONFIG_PACKAGE_luci-app-filemanager=y
-CONFIG_PACKAGE_luci-app-gost=y
-CONFIG_PACKAGE_git-http=y
-CONFIG_PACKAGE_luci-app-nginx=y
-CONFIG_PACKAGE_luci-app-adguardhome=y
-CONFIG_PACKAGE_zoneinfo-asia=y
-CONFIG_PACKAGE_bind-dig=y
-CONFIG_PACKAGE_ss=y
-CONFIG_PACKAGE_luci-app-turboacc=y
-EOF_TOOLS
-
-# ============================================
-# SMALL 体积保护逻辑
-# ============================================
+# ---------- SMALL 体积保护 ----------
 case "${WRT_CONFIG,,}" in
   *small*|*samll*)
     echo ">> SMALL profile detected, applying minimal/safe package set"
 
+    # 科学最小集
     cat >> ./.config << 'EOF_SM_MIN'
 CONFIG_PACKAGE_luci-app-homeproxy=n
 CONFIG_PACKAGE_luci-app-momo=y
@@ -118,6 +111,7 @@ CONFIG_PACKAGE_luci-app-nikki=y
 CONFIG_PACKAGE_sing-box=y
 EOF_SM_MIN
 
+    # 常用白名单
     cat >> ./.config << 'EOF_SM_WHITE'
 CONFIG_PACKAGE_luci-app-autoreboot=y
 CONFIG_PACKAGE_luci-app-gecoosac=y
@@ -130,6 +124,7 @@ CONFIG_PACKAGE_luci-app-adguardhome=y
 CONFIG_PACKAGE_adguardhome=y
 EOF_SM_WHITE
 
+    # 重型组件统统关
     cat >> ./.config << 'EOF_SM_BLOCK'
 CONFIG_PACKAGE_luci-app-openclash=n
 CONFIG_PACKAGE_openclash=n
@@ -153,49 +148,16 @@ CONFIG_PACKAGE_coreutils=n
 CONFIG_PACKAGE_coreutils-base64=n
 EOF_SM_BLOCK
 
-    if ! find feeds -maxdepth 3 -type f -path "*/sing-box/Makefile" | grep -q . && [ ! -d package/sing-box ]; then
-      echo "CONFIG_PACKAGE_sing-box=n" >> ./.config
-      echo ">> WARNING: sing-box package not found, disabled to avoid build failure."
-    fi
-    ;;
-esac
-
-# ============================================
-# 大闪存机型：禁用 sqm-scripts-nss 打包冲突
-# ============================================
-case "${WRT_CONFIG,,}" in
-  *wifi-yes*|*wifi-no*)
-    echo ">> Disable sqm-scripts-nss to prevent CONTROL conflict"
+    # SMALL 机型默认不用 NSS 版 SQM，避免 CONTROL 冲突 & 节省体积
     echo "CONFIG_PACKAGE_sqm-scripts-nss=n" >> ./.config
-    echo "CONFIG_PACKAGE_sqm-scripts=y" >> ./.config
-    ;;
+    echo "CONFIG_PACKAGE_sqm-scripts=y"     >> ./.config
+  ;;
 esac
 
-# ============================================
-# Podman 运行最优配置块
-# ============================================
+# ---------- Podman 友好（仅非 SMALL） ----------
 case "${WRT_CONFIG,,}" in
-  *small*|*samll*)
-    echo ">> SMALL build: skip heavy Podman stack auto-enable"
-    ;;
+  *small*|*samll*) : ;;
   *)
-    echo ">> Enable full Podman stack (packages + kernel features)"
-
-    cat >> ./.config << 'EOF_POD_PKGS'
-CONFIG_PACKAGE_luci-app-podman=y
-CONFIG_PACKAGE_podman=y
-CONFIG_PACKAGE_conmon=y
-CONFIG_PACKAGE_crun=y
-CONFIG_PACKAGE_catatonit=y
-CONFIG_PACKAGE_slirp4netns=y
-CONFIG_PACKAGE_fuse-overlayfs=y
-CONFIG_PACKAGE_uidmap=y
-CONFIG_PACKAGE_netavark=y
-CONFIG_PACKAGE_aardvark-dns=y
-CONFIG_PACKAGE_containers-storage=y
-CONFIG_PACKAGE_podman-compose=y
-EOF_POD_PKGS
-
     cat >> ./.config << 'EOF_POD_KCFG'
 CONFIG_KERNEL_CGROUPS=y
 CONFIG_KERNEL_CGROUP_PIDS=y
@@ -207,25 +169,12 @@ CONFIG_KERNEL_SECCOMP_FILTER=y
 CONFIG_KERNEL_KEYS=y
 EOF_POD_KCFG
 
-    mkdir -p ./files/etc/containers ./files/root/.config/containers ./files/root/.local/share/containers
-
-    if [ "${PODMAN_EXTERNAL}" = "1" ] || [ "${PODMAN_EXTERNAL,,}" = "true" ]; then
-      echo ">> Use external storage for Podman: /opt/podman"
-      mkdir -p ./files/opt/podman ./files/etc/containers
-      cat > ./files/etc/containers/storage.conf << 'EOF_STCONF'
-[storage]
-driver = "overlay"
-graphroot = "/opt/podman"
-runroot = "/run/containers/storage"
-[storage.options]
-mount_program = "/usr/bin/fuse-overlayfs"
-EOF_STCONF
-    fi
-
     mkdir -p ./files/etc/sysctl.d
     cat > ./files/etc/sysctl.d/99-podman.conf << 'EOF_SYSCTL'
 net.ipv4.ip_forward=1
 net.ipv6.conf.all.forwarding=1
 EOF_SYSCTL
-    ;;
+  ;;
 esac
+
+echo ">> Settings.sh applied OK."
