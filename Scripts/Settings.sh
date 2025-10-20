@@ -1,19 +1,11 @@
 #!/bin/bash
-# ======================================================
-# Scripts/Settings.sh  —— 通用设置
-# - 不再写任何 CONFIG_FEED_*（会破坏 Kconfig）
-# - QUALCOMMAX 平台保持 NSS 友好
-# - SMALL 机型：体积保护 + 默认用普通 sqm-scripts（禁用 sqm-scripts-nss）
-# - 末尾附 Podman 最优（仅非 SMALL）
-# ======================================================
 set -e
 
-# ---------- LuCI 主题/标识 ----------
+# ---------- 主题 / IP / 标识 ----------
 sed -i "s/luci-theme-bootstrap/luci-theme-$WRT_THEME/g" $(find ./feeds/luci/collections/ -type f -name "Makefile")
-sed -i "s/192\.168\.[0-9]*\.[0-9]*/$WRT_IP/g" $(find ./feeds/luci/modules/luci-mod-system/ -type f -name "flash.js")
+sed -i "s/192\.168\.[0-9]*\.[0-9]*/$WRT_IP/g"  $(find ./feeds/luci/modules/luci-mod-system/ -type f -name "flash.js")
 sed -i "s/(\(luciversion || ''\))/(\1) + (' \/ $WRT_MARK-$WRT_DATE')/g" $(find ./feeds/luci/modules/luci-mod-status/ -type f -name "10_system.js")
 
-# ---------- WiFi 默认 ----------
 WIFI_SH=$(find ./target/linux/{mediatek/filogic,qualcommax}/base-files/etc/uci-defaults/ -type f -name "*set-wireless.sh" 2>/dev/null)
 WIFI_UC="./package/network/config/wifi-scripts/files/lib/wifi/mac80211.uc"
 if [ -f "$WIFI_SH" ]; then
@@ -26,12 +18,11 @@ elif [ -f "$WIFI_UC" ]; then
   sed -i "s/encryption='.*'/encryption='psk2+ccmp'/g" $WIFI_UC
 fi
 
-# ---------- 系统默认 ----------
 CFG_FILE="./package/base-files/files/bin/config_generate"
 sed -i "s/192\.168\.[0-9]*\.[0-9]*/$WRT_IP/g" $CFG_FILE
 sed -i "s/hostname='.*'/hostname='$WRT_NAME'/g" $CFG_FILE
 
-# ---------- 基础 LuCI ----------
+# ---------- 基础 LuCI 选择 ----------
 {
   echo "CONFIG_PACKAGE_luci=y"
   echo "CONFIG_LUCI_LANG_zh_Hans=y"
@@ -39,71 +30,78 @@ sed -i "s/hostname='.*'/hostname='$WRT_NAME'/g" $CFG_FILE
   echo "CONFIG_PACKAGE_luci-app-$WRT_THEME-config=y"
 } >> ./.config
 
-# ---------- 额外手动开关（来自 workflow 变量） ----------
+# ---------- 你手动要加的内容（如有） ----------
 if [ -n "$WRT_PACKAGE" ]; then
   echo -e "$WRT_PACKAGE" >> ./.config
 fi
 
-# ---------- QUALCOMMAX 平台（保留 NSS 相关习惯） ----------
+# ---------- 高通/NSS 相关 ----------
 DTS_PATH="./target/linux/qualcommax/files/arch/arm64/boot/dts/qcom/"
 if [[ "${WRT_TARGET^^}" == *"QUALCOMMAX"* ]]; then
-  # 大内存版：保持 NSS 版 SQM（你原来的习惯）
-  if [[ "${WRT_CONFIG,,}" != *"small"* && "${WRT_CONFIG,,}" != *"samll"* ]]; then
-    echo "CONFIG_PACKAGE_luci-app-sqm=y"        >> ./.config
-    echo "CONFIG_PACKAGE_sqm-scripts-nss=y"    >> ./.config
-  fi
-
-  # 固件分支选择
+  echo "CONFIG_FEED_nss_packages=n" >> ./.config
+  echo "CONFIG_FEED_sqm_scripts_nss=n" >> ./.config
+  echo "CONFIG_PACKAGE_luci-app-sqm=y" >> ./.config
+  echo "CONFIG_PACKAGE_sqm-scripts-nss=y" >> ./.config
   echo "CONFIG_NSS_FIRMWARE_VERSION_11_4=n" >> ./.config
   if [[ "${WRT_CONFIG,,}" == *"ipq50"* ]]; then
     echo "CONFIG_NSS_FIRMWARE_VERSION_12_2=y" >> ./.config
   else
     echo "CONFIG_NSS_FIRMWARE_VERSION_12_5=y" >> ./.config
   fi
-
-  # 无 WiFi 变体：替换 nowifi dtsi
   if [[ "${WRT_CONFIG,,}" == *"wifi"* && "${WRT_CONFIG,,}" == *"no"* ]]; then
     find $DTS_PATH -type f ! -iname '*nowifi*' -exec sed -i 's/ipq\(6018\|8074\).dtsi/ipq\1-nowifi.dtsi/g' {} +
     echo "qualcommax set up nowifi successfully!"
   fi
 fi
 
-# ---------- 修复 dropbear ----------
+# ---------- dropbear 修正 ----------
 sed -i "s/Interface/DirectInterface/" ./package/network/services/dropbear/files/dropbear.config
 
-# ---------- 你常用的基础工具 ----------
-{
-  echo "CONFIG_CGROUPS=y"
-  echo "CONFIG_CPUSETS=y"
-  echo "CONFIG_PACKAGE_openssh-sftp-server=y"
-  echo "CONFIG_PACKAGE_jq=y"
-  echo "CONFIG_PACKAGE_coreutils-base64=y"
-  echo "CONFIG_PACKAGE_coreutils=y"
-  echo "CONFIG_PACKAGE_btop=y"
-  echo "CONFIG_PACKAGE_luci-app-openlist2=y"
-  echo "CONFIG_PACKAGE_luci-app-lucky=y"
-  echo "CONFIG_PACKAGE_curl=y"
-  echo "CONFIG_PACKAGE_tcping=y"
-  echo "CONFIG_PACKAGE_cfdisk=y"
-  echo "CONFIG_PACKAGE_luci-app-podman=y"
-  echo "CONFIG_PACKAGE_luci-app-caddy=y"
-  echo "CONFIG_PACKAGE_luci-app-filemanager=y"
-  echo "CONFIG_PACKAGE_luci-app-gost=y"
-  echo "CONFIG_PACKAGE_git-http=y"
-  echo "CONFIG_PACKAGE_luci-app-nginx=y"
-  echo "CONFIG_PACKAGE_luci-app-adguardhome=y"
-  echo "CONFIG_PACKAGE_zoneinfo-asia=y"
-  echo "CONFIG_PACKAGE_bind-dig=y"
-  echo "CONFIG_PACKAGE_ss=y"
-  echo "CONFIG_PACKAGE_luci-app-turboacc=y"
-} >> ./.config
+# ---------- 显式关闭容易引发依赖的包（稳态） ----------
+cat >> ./.config <<'EOF_BLOCK_BAD'
+CONFIG_PACKAGE_luci-app-wolplus=n
+CONFIG_PACKAGE_luci-app-tailscale=n
+CONFIG_PACKAGE_luci-app-advancedplus=n
+CONFIG_PACKAGE_luci-theme-kucat=n
+# feeds 可能带入的代理相关（容易引错）
+CONFIG_PACKAGE_dae=n
+CONFIG_PACKAGE_daed=n
+CONFIG_PACKAGE_luci-app-v2raya=n
+CONFIG_PACKAGE_v2raya=n
+EOF_BLOCK_BAD
 
-# ---------- SMALL 体积保护 ----------
+# ---------- 便捷工具 ----------
+cat >> ./.config <<'EOF_TOOLS'
+CONFIG_CGROUPS=y
+CONFIG_CPUSETS=y
+CONFIG_PACKAGE_openssh-sftp-server=y
+CONFIG_PACKAGE_jq=y
+CONFIG_PACKAGE_coreutils-base64=y
+CONFIG_PACKAGE_coreutils=y
+CONFIG_PACKAGE_btop=y
+CONFIG_PACKAGE_luci-app-openlist2=y
+CONFIG_PACKAGE_luci-app-lucky=y
+CONFIG_PACKAGE_curl=y
+CONFIG_PACKAGE_tcping=y
+CONFIG_PACKAGE_cfdisk=y
+CONFIG_PACKAGE_luci-app-podman=y
+CONFIG_PACKAGE_luci-app-caddy=y
+CONFIG_PACKAGE_luci-app-filemanager=y
+CONFIG_PACKAGE_luci-app-gost=y
+CONFIG_PACKAGE_git-http=y
+CONFIG_PACKAGE_luci-app-nginx=y
+CONFIG_PACKAGE_luci-app-adguardhome=y
+CONFIG_PACKAGE_zoneinfo-asia=y
+CONFIG_PACKAGE_bind-dig=y
+CONFIG_PACKAGE_ss=y
+CONFIG_PACKAGE_luci-app-turboacc=y
+EOF_TOOLS
+
+# ---------- SMALL 体积保护 + NSS SQM 开关 ----------
 case "${WRT_CONFIG,,}" in
   *small*|*samll*)
     echo ">> SMALL profile detected, applying minimal/safe package set"
 
-    # 科学最小集
     cat >> ./.config << 'EOF_SM_MIN'
 CONFIG_PACKAGE_luci-app-homeproxy=n
 CONFIG_PACKAGE_luci-app-momo=y
@@ -111,7 +109,6 @@ CONFIG_PACKAGE_luci-app-nikki=y
 CONFIG_PACKAGE_sing-box=y
 EOF_SM_MIN
 
-    # 常用白名单
     cat >> ./.config << 'EOF_SM_WHITE'
 CONFIG_PACKAGE_luci-app-autoreboot=y
 CONFIG_PACKAGE_luci-app-gecoosac=y
@@ -124,7 +121,6 @@ CONFIG_PACKAGE_luci-app-adguardhome=y
 CONFIG_PACKAGE_adguardhome=y
 EOF_SM_WHITE
 
-    # 重型组件统统关
     cat >> ./.config << 'EOF_SM_BLOCK'
 CONFIG_PACKAGE_luci-app-openclash=n
 CONFIG_PACKAGE_openclash=n
@@ -148,33 +144,19 @@ CONFIG_PACKAGE_coreutils=n
 CONFIG_PACKAGE_coreutils-base64=n
 EOF_SM_BLOCK
 
-    # SMALL 机型默认不用 NSS 版 SQM，避免 CONTROL 冲突 & 节省体积
-    echo "CONFIG_PACKAGE_sqm-scripts-nss=n" >> ./.config
-    echo "CONFIG_PACKAGE_sqm-scripts=y"     >> ./.config
+    # NSS SQM 开关（默认普通 SQM；设置 ENABLE_NSS_FOR_SMALL=1 启 NSS）
+    if [ "${ENABLE_NSS_FOR_SMALL}" = "1" ]; then
+      echo ">> Enable NSS SQM for SMALL"
+      echo "CONFIG_PACKAGE_luci-app-sqm=y"     >> ./.config
+      echo "CONFIG_PACKAGE_sqm-scripts-nss=y" >> ./.config
+      echo "CONFIG_PACKAGE_sqm-scripts=n"     >> ./.config
+    else
+      echo ">> Use normal SQM for SMALL (default)"
+      echo "CONFIG_PACKAGE_sqm-scripts-nss=n" >> ./.config
+      echo "CONFIG_PACKAGE_sqm-scripts=y"     >> ./.config
+    fi
   ;;
 esac
 
-# ---------- Podman 友好（仅非 SMALL） ----------
-case "${WRT_CONFIG,,}" in
-  *small*|*samll*) : ;;
-  *)
-    cat >> ./.config << 'EOF_POD_KCFG'
-CONFIG_KERNEL_CGROUPS=y
-CONFIG_KERNEL_CGROUP_PIDS=y
-CONFIG_KERNEL_MEMCG=y
-CONFIG_KERNEL_NAMESPACES=y
-CONFIG_KERNEL_USER_NS=y
-CONFIG_KERNEL_SECCOMP=y
-CONFIG_KERNEL_SECCOMP_FILTER=y
-CONFIG_KERNEL_KEYS=y
-EOF_POD_KCFG
-
-    mkdir -p ./files/etc/sysctl.d
-    cat > ./files/etc/sysctl.d/99-podman.conf << 'EOF_SYSCTL'
-net.ipv4.ip_forward=1
-net.ipv6.conf.all.forwarding=1
-EOF_SYSCTL
-  ;;
-esac
-
-echo ">> Settings.sh applied OK."
+# ---------- 防止 WiFi-YES/NO 机型“强制关NSS SQM”的旧逻辑残留 ----------
+#（若你保留旧的 case wifi-yes/no，这里先不再写入，避免覆盖 SMALL 的 NSS 选择）
