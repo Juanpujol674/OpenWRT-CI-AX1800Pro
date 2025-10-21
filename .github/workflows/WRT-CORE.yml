@@ -89,6 +89,7 @@ jobs:
           sudo bash -c 'bash <(curl -sL https://build-scripts.immortalwrt.org/init_build_environment.sh)'
           sudo -E systemctl daemon-reload
           sudo -E timedatectl set-timezone "Asia/Shanghai"
+
           echo "OPENWRT_PATH=$PWD" >> $GITHUB_ENV
 
       - name: Combine Disks(合并磁盘)
@@ -106,23 +107,16 @@ jobs:
           echo "WRT_DATE=$(TZ=UTC-8 date +"%y.%m.%d-%H.%M.%S")" >> $GITHUB_ENV
           echo "WRT_MARK=${GITHUB_REPOSITORY%%/*}" >> $GITHUB_ENV
           echo "WRT_INFO=${WRT_SOURCE%%/*}" >> $GITHUB_ENV
-          echo "WRT_TARGET=$(grep -m 1 -oP '^CONFIG_TARGET_\K[\w]+(?=\=y)' ./Config/$WRT_CONFIG.txt || true)" >> $GITHUB_ENV
+          echo "WRT_TARGET=$(grep -m 1 -oP '^CONFIG_TARGET_\K[\w]+(?=\=y)' ./Config/$WRT_CONFIG.txt)" >> $GITHUB_ENV
           echo "WRT_KVER=none" >> $GITHUB_ENV
           echo "WRT_LIST=none" >> $GITHUB_ENV
           sudo mkdir -p $OPENWRT_PATH/build_wrt
           sudo chown $USER:$USER $OPENWRT_PATH/build_wrt
           sudo ln -s $OPENWRT_PATH/build_wrt $GITHUB_WORKSPACE/wrt
 
-      # 统一把 https://github.com/* 映射为带 GITHUB_TOKEN 的认证 URL，避免偶发 "could not read Username for 'https://github.com'"
-      - name: Prepare authenticated GitHub clone(配置认证克隆)
-        run: |
-          git config --global url."https://${GITHUB_ACTOR}:${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
-          git config --global http.lowSpeedLimit 1
-          git config --global http.lowSpeedTime 600
-
       - name: Clone Code(拉取固件源码)
         run: |
-          git clone --depth=1 --single-branch --branch "$WRT_BRANCH" "$WRT_REPO" ./wrt/
+          git clone --depth=1 --single-branch --branch $WRT_BRANCH $WRT_REPO ./wrt/
           cd ./wrt/ && echo "WRT_HASH=$(git log -1 --pretty=format:'%h')" >> $GITHUB_ENV
           PROJECT_MIRRORS_FILE="./scripts/projectsmirrors.json"
           if [ -f "$PROJECT_MIRRORS_FILE" ]; then
@@ -131,8 +125,14 @@ jobs:
 
       - name: Check Scripts(统一执行权限)
         run: |
-          # 转换换行符 + 赋可执行权（含 ./Scripts 下的自定义脚本）
-          find ./ -maxdepth 4 -type f -iregex ".*\.\(txt\|sh\)$" -exec dos2unix {} \; -exec chmod +x {} \; || true
+          find ./ -maxdepth 3 -type f -iregex ".*\(txt\|sh\)$" -exec dos2unix {} \; -exec chmod +x {} \;
+
+      # ⚠️ 保持：把所有 https://github.com/* 的 clone 改为带 GITHUB_TOKEN 的认证 URL
+      - name: Prepare authenticated GitHub clone(配置认证克隆)
+        run: |
+          git config --global url."https://${GITHUB_ACTOR}:${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
+          git config --global http.lowSpeedLimit 1
+          git config --global http.lowSpeedTime 600
 
       - name: Update Feeds(更新软件包源)
         run: |
@@ -142,19 +142,20 @@ jobs:
 
       - name: Custom Packages(自定义软件包)
         run: |
-          # 先在 wrt 根目录执行 SMALL/非 SMALL 分流脚本（内部会自行 cd 到正确目录）
+          # 先在 wrt 根目录执行 SMALL/非 SMALL 分流脚本（脚本内部会 cd 到正确目录）
           cd ./wrt/
+
           if [[ "${WRT_CONFIG,,}" == *"small"* || "${WRT_CONFIG,,}" == *"samll"* ]]; then
             echo ">> Detected SMALL config, using Packages_small.sh"
-            bash "$GITHUB_WORKSPACE/Scripts/Packages_small.sh"
+            bash $GITHUB_WORKSPACE/Scripts/Packages_small.sh
           else
             echo ">> Using standard Packages.sh"
-            bash "$GITHUB_WORKSPACE/Scripts/Packages.sh"
+            bash $GITHUB_WORKSPACE/Scripts/Packages.sh
           fi
 
-          # 再切到 package 目录执行 Handles.sh（该脚本假设在 package 下工作更安全）
+          # 再切到 package 目录执行 Handles.sh（该脚本假设在 package 下工作）
           cd ./package/
-          bash "$GITHUB_WORKSPACE/Scripts/Handles.sh"
+          bash $GITHUB_WORKSPACE/Scripts/Handles.sh
 
       - name: Custom Settings(自定义设置)
         run: |
@@ -164,57 +165,42 @@ jobs:
           else
             cat "$GITHUB_WORKSPACE/Config/$WRT_CONFIG.txt" "$GITHUB_WORKSPACE/Config/GENERAL.txt" >> .config
           fi
-          # 一律用 bash 调用，规避可执行位/换行符问题
-          bash "$GITHUB_WORKSPACE/Scripts/Settings.sh"
+          "$GITHUB_WORKSPACE/Scripts/Settings.sh"
           make defconfig -j"$(nproc)" && make clean -j"$(nproc)"
 
       - name: Download Packages(下载依赖)
         if: env.WRT_TEST != 'true'
-        run: |
-          cd ./wrt/ && make download -j"$(nproc)"
+        run: cd ./wrt/ && make download -j"$(nproc)"
 
+      # ✅ 仅此处为修改点：非 SMALL 失败时自动切到 -j1 V=s 打出具体失败包
       - name: Compile Firmware(编译固件)
         if: env.WRT_TEST != 'true'
         run: |
-          cd ./wrt/ && make -j"$(nproc)" || make -j"$(nproc)" V=s
+          cd ./wrt/
+          if [[ "${WRT_CONFIG,,}" == *"small"* || "${WRT_CONFIG,,}" == *"samll"* ]]; then
+            make -j"$(nproc)" || make -j"$(nproc)" V=s
+          else
+            make -j"$(nproc)" || { echo "==== parallel build failed; retry serial with verbose ===="; make -j1 V=s; }
+          fi
 
       - name: Package Firmware(打包固件)
         run: |
-          set -euo pipefail
-          cd ./wrt/ && mkdir -p ./upload/
-
-          # 1) 保存本次配置
-          cp -f ./.config "./upload/Config-${WRT_CONFIG}-${WRT_INFO}-${WRT_BRANCH}-${WRT_DATE}.txt"
-
-          if [[ "${WRT_TEST}" != 'true' ]]; then
-            # 2) 环境信息写入 GITHUB_ENV（不使用复杂转义）
-            kver="$(find ./bin/targets/ -type f -name '*.manifest' -exec grep -h -oP '^kernel - \K[\d\.]+' {} \; | head -n1 || true)"
-            echo "WRT_KVER=${kver:-unknown}" >> "$GITHUB_ENV"
-
-            wlist="$(find ./bin/targets/ -type f -name '*.manifest' -exec grep -h -oP '^luci-(app|theme)[^ ]*' {} \; | tr '\n' ' ' || true)"
-            echo "WRT_LIST=${wlist:-none}" >> "$GITHUB_ENV"
-
-            nssv="$(grep -h -oP '^CONFIG_NSS_FIRMWARE_VERSION_\K[\d_]+' .config | sed 's/_/./g' | head -n1 || true)"
-            echo "NSS_FIRMWARE_VERSION=${nssv:-none}" >> "$GITHUB_ENV"
-
-            # 3) 清理不需要的产物
-            find ./bin/targets/ -iregex '.*\(buildinfo\|json\|sha256sums\|packages\)$' -exec rm -rf {} +
-
-            # 4) 稳健重命名：以原始文件名为基础，只加统一前缀和时间，不依赖复杂正则
-            shopt -s nullglob
-            while IFS= read -r -d '' f; do
-              base="$(basename "$f")"
-              ext="${base#*.}"
-              stem="${base%%.*}"
-              new="${WRT_INFO}-${WRT_BRANCH}-${stem}-${WRT_DATE}.${ext}"
-              mv -f "$f" "./upload/$new"
-            done < <(find ./bin/targets/ -type f -print0)
-
-            # 5) 清空 bin/targets 残留（若有）并清理
-            find ./bin/targets/ -type f -exec rm -f {} \; || true
-
+          cd ./wrt/ && mkdir ./upload/
+          cp -f ./.config ./upload/Config-"$WRT_CONFIG"-"$WRT_INFO"-"$WRT_BRANCH"-"$WRT_DATE".txt
+          if [[ $WRT_TEST != 'true' ]]; then
+            echo "WRT_KVER=$(find ./bin/targets/ -type f -name "*.manifest" -exec grep -oP '^kernel - \K[\d\.]+' {} \; | head -n1)" >> $GITHUB_ENV
+            echo "WRT_LIST=$(find ./bin/targets/ -type f -name "*.manifest" -exec grep -oP '^luci-(app|theme)[^ ]*' {} \; | tr '\n' ' ')" >> $GITHUB_ENV
+            echo "NSS_FIRMWARE_VERSION=$(grep -oP '^CONFIG_NSS_FIRMWARE_VERSION_\K[\d_]+(?==y)' .config | sed 's/_/./g' | head -n1)" >> $GITHUB_ENV
+            find ./bin/targets/ -iregex ".*\(buildinfo\|json\|sha256sums\|packages\)$" -exec rm -rf {} +
+            for FILE in $(find ./bin/targets/ -type f -iname "*$WRT_TARGET*") ; do
+              EXT=$(basename $FILE | cut -d '.' -f 2-)
+              NAME=$(basename $FILE | cut -d '.' -f 1 | grep -io "\($WRT_TARGET\).*")
+              NEW_FILE="$WRT_INFO"-"$WRT_BRANCH"-"$NAME"-"$WRT_DATE"."$EXT"
+              mv -f $FILE ./upload/$NEW_FILE
+            done
+            find ./bin/targets/ -type f -exec mv -f {} ./upload/ \;
             export LDFLAGS="-fuse-ld=lld"
-            make clean -j"$(nproc)"
+            make clean -j$(nproc)
           fi
 
       - name: Release Firmware(发布固件)
