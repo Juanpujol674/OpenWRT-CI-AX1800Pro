@@ -106,12 +106,19 @@ jobs:
           echo "WRT_DATE=$(TZ=UTC-8 date +"%y.%m.%d-%H.%M.%S")" >> $GITHUB_ENV
           echo "WRT_MARK=${GITHUB_REPOSITORY%%/*}" >> $GITHUB_ENV
           echo "WRT_INFO=${WRT_SOURCE%%/*}" >> $GITHUB_ENV
-          echo "WRT_TARGET=$(grep -m 1 -oP '^CONFIG_TARGET_\\K[\\w]+(?=\\=y)' ./Config/$WRT_CONFIG.txt)" >> $GITHUB_ENV
+          echo "WRT_TARGET=$(grep -m 1 -oP '^CONFIG_TARGET_\K[\w]+(?=\=y)' ./Config/$WRT_CONFIG.txt || true)" >> $GITHUB_ENV
           echo "WRT_KVER=none" >> $GITHUB_ENV
           echo "WRT_LIST=none" >> $GITHUB_ENV
           sudo mkdir -p $OPENWRT_PATH/build_wrt
           sudo chown $USER:$USER $OPENWRT_PATH/build_wrt
           sudo ln -s $OPENWRT_PATH/build_wrt $GITHUB_WORKSPACE/wrt
+
+      # 统一把 https://github.com/* 映射为带 GITHUB_TOKEN 的认证 URL，避免偶发 "could not read Username for 'https://github.com'"
+      - name: Prepare authenticated GitHub clone(配置认证克隆)
+        run: |
+          git config --global url."https://${GITHUB_ACTOR}:${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
+          git config --global http.lowSpeedLimit 1
+          git config --global http.lowSpeedTime 600
 
       - name: Clone Code(拉取固件源码)
         run: |
@@ -124,14 +131,8 @@ jobs:
 
       - name: Check Scripts(统一执行权限)
         run: |
-          find ./ -maxdepth 3 -type f -iregex ".*\(txt\|sh\)$" -exec dos2unix {} \; -exec chmod +x {} \;
-
-      # 关键：把所有 https://github.com/* 的 clone 改为带 GITHUB_TOKEN 的认证 URL
-      - name: Prepare authenticated GitHub clone(配置认证克隆)
-        run: |
-          git config --global url."https://${GITHUB_ACTOR}:${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
-          git config --global http.lowSpeedLimit 1
-          git config --global http.lowSpeedTime 600
+          # 转换换行符 + 赋可执行权（含 ./Scripts 下的自定义脚本）
+          find ./ -maxdepth 4 -type f -iregex ".*\.\(txt\|sh\)$" -exec dos2unix {} \; -exec chmod +x {} \; || true
 
       - name: Update Feeds(更新软件包源)
         run: |
@@ -141,7 +142,7 @@ jobs:
 
       - name: Custom Packages(自定义软件包)
         run: |
-          # 先在 wrt 根目录执行 SMALL/非 SMALL 分流脚本（脚本内部会进入正确目录）
+          # 先在 wrt 根目录执行 SMALL/非 SMALL 分流脚本（内部会自行 cd 到正确目录）
           cd ./wrt/
           if [[ "${WRT_CONFIG,,}" == *"small"* || "${WRT_CONFIG,,}" == *"samll"* ]]; then
             echo ">> Detected SMALL config, using Packages_small.sh"
@@ -150,7 +151,8 @@ jobs:
             echo ">> Using standard Packages.sh"
             bash "$GITHUB_WORKSPACE/Scripts/Packages.sh"
           fi
-          # 再进入 package 目录执行 Handles.sh（该脚本假设在 package 目录运行）
+
+          # 再切到 package 目录执行 Handles.sh（该脚本假设在 package 下工作更安全）
           cd ./package/
           bash "$GITHUB_WORKSPACE/Scripts/Handles.sh"
 
@@ -162,22 +164,19 @@ jobs:
           else
             cat "$GITHUB_WORKSPACE/Config/$WRT_CONFIG.txt" "$GITHUB_WORKSPACE/Config/GENERAL.txt" >> .config
           fi
-          # 用 bash 执行，避免可执行位缺失导致的 Permission denied
+          # 一律用 bash 调用，规避可执行位/换行符问题
           bash "$GITHUB_WORKSPACE/Scripts/Settings.sh"
           make defconfig -j"$(nproc)" && make clean -j"$(nproc)"
 
       - name: Download Packages(下载依赖)
         if: env.WRT_TEST != 'true'
         run: |
-          cd ./wrt/
-          make download -j"$(nproc)"
+          cd ./wrt/ && make download -j"$(nproc)"
 
       - name: Compile Firmware(编译固件)
         if: env.WRT_TEST != 'true'
         run: |
-          cd ./wrt/
-          # 先并行 + 详细日志；失败则单线程重跑以输出真实失败点
-          make -j"$(nproc)" V=s || make -j1 V=s
+          cd ./wrt/ && make -j"$(nproc)" || make -j"$(nproc)" V=s
 
       - name: Package Firmware(打包固件)
         run: |
@@ -188,39 +187,31 @@ jobs:
           cp -f ./.config "./upload/Config-${WRT_CONFIG}-${WRT_INFO}-${WRT_BRANCH}-${WRT_DATE}.txt"
 
           if [[ "${WRT_TEST}" != 'true' ]]; then
-            # 2) 环境信息
-            echo "WRT_KVER=$(find ./bin/targets/ -type f -name '*.manifest' -exec grep -oP '^kernel - \\K[\\d\\.]+' {} \\; | head -n1)" >> "$GITHUB_ENV"
-            echo "WRT_LIST=$(find ./bin/targets/ -type f -name '*.manifest' -exec grep -oP '^luci-(app|theme)[^ ]*' {} \\; | tr '\\n' ' ')" >> "$GITHUB_ENV"
-            echo "NSS_FIRMWARE_VERSION=$(grep -oP '^CONFIG_NSS_FIRMWARE_VERSION_\\K[\\d_]+' .config | sed 's/_/./g' | head -n1)" >> "$GITHUB_ENV"
+            # 2) 环境信息写入 GITHUB_ENV（不使用复杂转义）
+            kver="$(find ./bin/targets/ -type f -name '*.manifest' -exec grep -h -oP '^kernel - \K[\d\.]+' {} \; | head -n1 || true)"
+            echo "WRT_KVER=${kver:-unknown}" >> "$GITHUB_ENV"
+
+            wlist="$(find ./bin/targets/ -type f -name '*.manifest' -exec grep -h -oP '^luci-(app|theme)[^ ]*' {} \; | tr '\n' ' ' || true)"
+            echo "WRT_LIST=${wlist:-none}" >> "$GITHUB_ENV"
+
+            nssv="$(grep -h -oP '^CONFIG_NSS_FIRMWARE_VERSION_\K[\d_]+' .config | sed 's/_/./g' | head -n1 || true)"
+            echo "NSS_FIRMWARE_VERSION=${nssv:-none}" >> "$GITHUB_ENV"
 
             # 3) 清理不需要的产物
             find ./bin/targets/ -iregex '.*\(buildinfo\|json\|sha256sums\|packages\)$' -exec rm -rf {} +
 
-            # 4) 稳健重命名（不依赖括号正则）
+            # 4) 稳健重命名：以原始文件名为基础，只加统一前缀和时间，不依赖复杂正则
             shopt -s nullglob
-            mapfile -t FW_FILES < <(find ./bin/targets/ -type f -maxdepth 3)
-            for FILE in "${FW_FILES[@]}"; do
-              base="$(basename "$FILE")"
+            while IFS= read -r -d '' f; do
+              base="$(basename "$f")"
               ext="${base#*.}"
               stem="${base%%.*}"
+              new="${WRT_INFO}-${WRT_BRANCH}-${stem}-${WRT_DATE}.${ext}"
+              mv -f "$f" "./upload/$new"
+            done < <(find ./bin/targets/ -type f -print0)
 
-              lower_stem="$(printf '%s' "$stem" | tr '[:upper:]' '[:lower:]')"
-              lower_target="$(printf '%s' "$WRT_TARGET" | tr '[:upper:]' '[:lower:]')"
-
-              if [[ "$lower_stem" == *"$lower_target"* ]]; then
-                pos="$(awk -v a="$lower_stem" -v b="$lower_target" 'BEGIN{print index(a,b)}')"
-                start=$((pos-1))
-                name_part="${stem:$start}"
-              else
-                name_part="$stem"
-              fi
-
-              new="__${WRT_INFO}-${WRT_BRANCH}-${name_part}-${WRT_DATE}.${ext}"
-              mv -f "$FILE" "./upload/$new"
-            done
-
-            # 5) 把可能遗漏的其它文件也搬走（若有）
-            find ./bin/targets/ -type f -exec mv -f {} ./upload/ \; || true
+            # 5) 清空 bin/targets 残留（若有）并清理
+            find ./bin/targets/ -type f -exec rm -f {} \; || true
 
             export LDFLAGS="-fuse-ld=lld"
             make clean -j"$(nproc)"
