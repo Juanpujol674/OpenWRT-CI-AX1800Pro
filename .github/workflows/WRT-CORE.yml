@@ -43,18 +43,18 @@ on:
 
 env:
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-  WRT_CONFIG:  ${{ inputs.WRT_CONFIG }}
-  WRT_THEME:   ${{ inputs.WRT_THEME }}
-  WRT_NAME:    ${{ inputs.WRT_NAME }}
-  WRT_SSID:    ${{ inputs.WRT_SSID }}
-  WRT_WORD:    ${{ inputs.WRT_WORD }}
-  WRT_IP:      ${{ inputs.WRT_IP }}
-  WRT_PW:      ${{ inputs.WRT_PW }}
-  WRT_REPO:    ${{ inputs.WRT_REPO }}
-  WRT_BRANCH:  ${{ inputs.WRT_BRANCH }}
-  WRT_SOURCE:  ${{ inputs.WRT_SOURCE }}
+  WRT_CONFIG: ${{ inputs.WRT_CONFIG }}
+  WRT_THEME: ${{ inputs.WRT_THEME }}
+  WRT_NAME: ${{ inputs.WRT_NAME }}
+  WRT_SSID: ${{ inputs.WRT_SSID }}
+  WRT_WORD: ${{ inputs.WRT_WORD }}
+  WRT_IP: ${{ inputs.WRT_IP }}
+  WRT_PW: ${{ inputs.WRT_PW }}
+  WRT_REPO: ${{ inputs.WRT_REPO }}
+  WRT_BRANCH: ${{ inputs.WRT_BRANCH }}
+  WRT_SOURCE: ${{ inputs.WRT_SOURCE }}
   WRT_PACKAGE: ${{ inputs.WRT_PACKAGE }}
-  WRT_TEST:    ${{ inputs.WRT_TEST }}
+  WRT_TEST: ${{ inputs.WRT_TEST }}
 
 jobs:
   core:
@@ -106,9 +106,7 @@ jobs:
           echo "WRT_DATE=$(TZ=UTC-8 date +"%y.%m.%d-%H.%M.%S")" >> $GITHUB_ENV
           echo "WRT_MARK=${GITHUB_REPOSITORY%%/*}" >> $GITHUB_ENV
           echo "WRT_INFO=${WRT_SOURCE%%/*}" >> $GITHUB_ENV
-          # 更稳的方式解析 TARGET（避免为空）
-          TGT=$(grep -m1 -E '^CONFIG_TARGET_[^=]+=y' "./Config/$WRT_CONFIG.txt" | sed -E 's/^CONFIG_TARGET_([^=]+)=y/\1/')
-          echo "WRT_TARGET=${TGT}" >> $GITHUB_ENV
+          echo "WRT_TARGET=$(grep -m 1 -oP '^CONFIG_TARGET_\\K[\\w]+(?=\\=y)' ./Config/$WRT_CONFIG.txt)" >> $GITHUB_ENV
           echo "WRT_KVER=none" >> $GITHUB_ENV
           echo "WRT_LIST=none" >> $GITHUB_ENV
           sudo mkdir -p $OPENWRT_PATH/build_wrt
@@ -124,20 +122,16 @@ jobs:
             sed -i '/.cn\//d; /tencent/d; /aliyun/d' "$PROJECT_MIRRORS_FILE"
           fi
 
-      # ✅ 关键新增：统一把 https://github.com/* 重写成带 GITHUB_TOKEN 的认证地址
-      # 这样后面所有 git clone 都会走 token，避免 “could not read Username for 'https://github.com'”
+      - name: Check Scripts(统一执行权限)
+        run: |
+          find ./ -maxdepth 3 -type f -iregex ".*\(txt\|sh\)$" -exec dos2unix {} \; -exec chmod +x {} \;
+
+      # 关键：把所有 https://github.com/* 的 clone 改为带 GITHUB_TOKEN 的认证 URL
       - name: Prepare authenticated GitHub clone(配置认证克隆)
         run: |
           git config --global url."https://${GITHUB_ACTOR}:${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
           git config --global http.lowSpeedLimit 1
           git config --global http.lowSpeedTime 600
-
-      # ✅ 权限与换行符兜底（包含 Scripts 目录）
-      - name: Check Scripts(统一执行权限)
-        run: |
-          find ./ -maxdepth 5 -type f -iregex ".*\(txt\|sh\)$" -exec dos2unix {} \; -exec chmod +x {} \;
-          dos2unix "$GITHUB_WORKSPACE"/Scripts/*.sh || true
-          chmod +x "$GITHUB_WORKSPACE"/Scripts/*.sh || true
 
       - name: Update Feeds(更新软件包源)
         run: |
@@ -147,7 +141,7 @@ jobs:
 
       - name: Custom Packages(自定义软件包)
         run: |
-          # 先在 wrt 根目录执行 SMALL/非 SMALL 分流脚本（脚本内会自处理 CWD）
+          # 先在 wrt 根目录执行 SMALL/非 SMALL 分流脚本（脚本内部会进入正确目录）
           cd ./wrt/
           if [[ "${WRT_CONFIG,,}" == *"small"* || "${WRT_CONFIG,,}" == *"samll"* ]]; then
             echo ">> Detected SMALL config, using Packages_small.sh"
@@ -156,8 +150,7 @@ jobs:
             echo ">> Using standard Packages.sh"
             bash "$GITHUB_WORKSPACE/Scripts/Packages.sh"
           fi
-
-          # 再切到 package 目录执行 Handles.sh（该脚本假设在 package 下工作）
+          # 再进入 package 目录执行 Handles.sh（该脚本假设在 package 目录运行）
           cd ./package/
           bash "$GITHUB_WORKSPACE/Scripts/Handles.sh"
 
@@ -169,7 +162,7 @@ jobs:
           else
             cat "$GITHUB_WORKSPACE/Config/$WRT_CONFIG.txt" "$GITHUB_WORKSPACE/Config/GENERAL.txt" >> .config
           fi
-          # 用 bash 显式执行，彻底规避 126(权限)/换行符带来的问题
+          # 用 bash 执行，避免可执行位缺失导致的 Permission denied
           bash "$GITHUB_WORKSPACE/Scripts/Settings.sh"
           make defconfig -j"$(nproc)" && make clean -j"$(nproc)"
 
@@ -183,25 +176,51 @@ jobs:
         if: env.WRT_TEST != 'true'
         run: |
           cd ./wrt/
-          make -j"$(nproc)" || make -j"$(nproc)" V=s
+          # 先并行 + 详细日志；失败则单线程重跑以输出真实失败点
+          make -j"$(nproc)" V=s || make -j1 V=s
 
       - name: Package Firmware(打包固件)
         run: |
+          set -euo pipefail
           cd ./wrt/ && mkdir -p ./upload/
-          cp -f ./.config "./upload/Config-${WRT_CONFIG}-${WRT_INFO}-${WRT_BRANCH}-${WRT_DATE}.txt"
-          if [[ "${WRT_TEST}" != 'true' ]]; then
-            echo "WRT_KVER=$(find ./bin/targets/ -type f -name "*.manifest" -exec grep -oP '^kernel - \K[\d\.]+' {} \;)" >> $GITHUB_ENV
-            echo "WRT_LIST=$(find ./bin/targets/ -type f -name "*.manifest" -exec grep -oP '^luci-(app|theme)[^ ]*' {} \; | tr '\n' ' ')" >> $GITHUB_ENV
-            echo "NSS_FIRMWARE_VERSION=$(grep -oP '^CONFIG_NSS_FIRMWARE_VERSION_\K[\d_]+(?==y)' .config | sed 's/_/./g')" >> $GITHUB_ENV
 
-            find ./bin/targets/ -iregex ".*\(buildinfo\|json\|sha256sums\|packages\)$" -exec rm -rf {} +
-            for FILE in $(find ./bin/targets/ -type f -iname "*${WRT_TARGET}*"); do
-              EXT=$(basename "$FILE" | cut -d '.' -f 2-)
-              NAME=$(basename "$FILE" | cut -d '.' -f 1 | grep -io "(${WRT_TARGET}).*")
-              NEW_FILE="${WRT_INFO}-${WRT_BRANCH}-${NAME}-${WRT_DATE}.${EXT}"
-              mv -f "$FILE" "./upload/$NEW_FILE"
+          # 1) 保存本次配置
+          cp -f ./.config "./upload/Config-${WRT_CONFIG}-${WRT_INFO}-${WRT_BRANCH}-${WRT_DATE}.txt"
+
+          if [[ "${WRT_TEST}" != 'true' ]]; then
+            # 2) 环境信息
+            echo "WRT_KVER=$(find ./bin/targets/ -type f -name '*.manifest' -exec grep -oP '^kernel - \\K[\\d\\.]+' {} \\; | head -n1)" >> "$GITHUB_ENV"
+            echo "WRT_LIST=$(find ./bin/targets/ -type f -name '*.manifest' -exec grep -oP '^luci-(app|theme)[^ ]*' {} \\; | tr '\\n' ' ')" >> "$GITHUB_ENV"
+            echo "NSS_FIRMWARE_VERSION=$(grep -oP '^CONFIG_NSS_FIRMWARE_VERSION_\\K[\\d_]+' .config | sed 's/_/./g' | head -n1)" >> "$GITHUB_ENV"
+
+            # 3) 清理不需要的产物
+            find ./bin/targets/ -iregex '.*\(buildinfo\|json\|sha256sums\|packages\)$' -exec rm -rf {} +
+
+            # 4) 稳健重命名（不依赖括号正则）
+            shopt -s nullglob
+            mapfile -t FW_FILES < <(find ./bin/targets/ -type f -maxdepth 3)
+            for FILE in "${FW_FILES[@]}"; do
+              base="$(basename "$FILE")"
+              ext="${base#*.}"
+              stem="${base%%.*}"
+
+              lower_stem="$(printf '%s' "$stem" | tr '[:upper:]' '[:lower:]')"
+              lower_target="$(printf '%s' "$WRT_TARGET" | tr '[:upper:]' '[:lower:]')"
+
+              if [[ "$lower_stem" == *"$lower_target"* ]]; then
+                pos="$(awk -v a="$lower_stem" -v b="$lower_target" 'BEGIN{print index(a,b)}')"
+                start=$((pos-1))
+                name_part="${stem:$start}"
+              else
+                name_part="$stem"
+              fi
+
+              new="__${WRT_INFO}-${WRT_BRANCH}-${name_part}-${WRT_DATE}.${ext}"
+              mv -f "$FILE" "./upload/$new"
             done
-            find ./bin/targets/ -type f -exec mv -f {} ./upload/ \;
+
+            # 5) 把可能遗漏的其它文件也搬走（若有）
+            find ./bin/targets/ -type f -exec mv -f {} ./upload/ \; || true
 
             export LDFLAGS="-fuse-ld=lld"
             make clean -j"$(nproc)"
