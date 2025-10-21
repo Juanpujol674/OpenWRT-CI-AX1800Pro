@@ -5,6 +5,7 @@ CONFIG_TARGET_qualcommax_ipq60xx=y
 # 仅编译这两台：cmiot_ax18 / zn_m2
 CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_cmiot_ax18=y
 CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_zn_m2=y
+CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_jdcloud_re-ss-01=y
 
 # WIFI-YES 版：保留 Wi-Fi（小体积优先）
 # —— 仅保留 AHB 方案；PCI/QCN9074 不需要 —— 
