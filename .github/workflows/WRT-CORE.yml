@@ -177,6 +177,11 @@ jobs:
         if: env.WRT_TEST != 'true'
         run: |
           cd ./wrt/
+          # Fix Rust/LLVM build error: "git remote repository URL has an embedded password"
+          # Override git remote URL seen by CMake's VersionFromVCS to a safe, password-free URL.
+          export GIT_CONFIG_COUNT=1
+          export GIT_CONFIG_KEY_0=remote.origin.url
+          export GIT_CONFIG_VALUE_0=https://github.com/llvm/llvm-project
           if [[ "${WRT_CONFIG,,}" == *"small"* || "${WRT_CONFIG,,}" == *"samll"* ]]; then
             make -j"$(nproc)" || make -j"$(nproc)" V=s
           else
