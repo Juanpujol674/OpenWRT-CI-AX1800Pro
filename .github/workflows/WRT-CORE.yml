@@ -89,6 +89,7 @@ jobs:
           sudo bash -c 'bash <(curl -sL https://build-scripts.immortalwrt.org/init_build_environment.sh)'
           sudo -E systemctl daemon-reload
           sudo -E timedatectl set-timezone "Asia/Shanghai"
+
           echo "OPENWRT_PATH=$PWD" >> $GITHUB_ENV
 
       - name: Combine Disks(合并磁盘)
@@ -101,6 +102,11 @@ jobs:
       - name: Checkout Projects(拉取云编译仓库脚本)
         uses: actions/checkout@main
 
+      - name: Fix Script Permissions(修正脚本权限/换行)
+        run: |
+          find ./ -maxdepth 3 -type f -iregex ".*\\(txt\\|sh\\)$" -exec dos2unix {} \\; -exec chmod +x {} \\;
+          chmod +x "$GITHUB_WORKSPACE/Scripts/"*.sh || true
+
       - name: Initialization Values(初始化变量)
         run: |
           echo "WRT_DATE=$(TZ=UTC-8 date +"%y.%m.%d-%H.%M.%S")" >> $GITHUB_ENV
@@ -111,29 +117,24 @@ jobs:
           echo "WRT_LIST=none" >> $GITHUB_ENV
           sudo mkdir -p $OPENWRT_PATH/build_wrt
           sudo chown $USER:$USER $OPENWRT_PATH/build_wrt
-          sudo ln -s $OPENWRT_PATH/build_wrt $GITHUB_WORKSPACE/wrt
-
-      - name: Prepare authenticated GitHub clone(配置认证克隆)
-        run: |
-          git config --global url."https://${GITHUB_ACTOR}:${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
-          git config --global http.lowSpeedLimit 1
-          git config --global http.lowSpeedTime 600
+          sudo ln -s $OPENWRT_PATH/build_wrt $GITHUB_WORKSPACE/wrt || true
 
       - name: Clone Code(拉取固件源码)
         run: |
           git clone --depth=1 --single-branch --branch "$WRT_BRANCH" "$WRT_REPO" ./wrt/
-          cd ./wrt/
-          echo "WRT_HASH=$(git log -1 --pretty=format:'%h')" >> $GITHUB_ENV
+          cd ./wrt/ && echo "WRT_HASH=$(git log -1 --pretty=format:'%h')" >> $GITHUB_ENV
+
+          # 清理 mirrors 中的国内镜像（用 awk，避免 sed 分隔符问题）
           PROJECT_MIRRORS_FILE="./scripts/projectsmirrors.json"
           if [ -f "$PROJECT_MIRRORS_FILE" ]; then
-            # 使用 awk 删除包含 .cn/、tencent、aliyun 的行，避免 sed 分隔符问题
-            awk '!/\.cn\/|tencent|aliyun/' "$PROJECT_MIRRORS_FILE" > "$PROJECT_MIRRORS_FILE.tmp" && mv "$PROJECT_MIRRORS_FILE.tmp" "$PROJECT_MIRRORS_FILE" || true
+            awk '!/\\.cn\\/|tencent|aliyun/' "$PROJECT_MIRRORS_FILE" > "$PROJECT_MIRRORS_FILE.tmp" && mv -f "$PROJECT_MIRRORS_FILE.tmp" "$PROJECT_MIRRORS_FILE"
           fi
 
-      - name: Check Scripts(统一执行权限)
+      - name: Prepare authenticated GitHub clone(配置认证克隆，仅用于下载)
         run: |
-          # 先确保仓库脚本可执行
-          find ./ -maxdepth 3 -type f -iregex ".*\\.(txt|sh)$" -exec dos2unix {} \; -exec chmod +x {} \;
+          git config --global url."https://${GITHUB_ACTOR}:${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
+          git config --global http.lowSpeedLimit 1
+          git config --global http.lowSpeedTime 600
 
       - name: Update Feeds(更新软件包源)
         run: |
@@ -141,18 +142,20 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
+          # 立刻撤销 token 化 URL，避免 LLVM/Rust CMake 报“embedded password”
+          git config --global --unset-all url."https://${GITHUB_ACTOR}:${GITHUB_TOKEN}@github.com/".insteadOf || true
+
       - name: Custom Packages(自定义软件包)
         run: |
           cd ./wrt/
           if [[ "${WRT_CONFIG,,}" == *"small"* || "${WRT_CONFIG,,}" == *"samll"* ]]; then
             echo ">> Detected SMALL config, using Packages_small.sh"
-            bash $GITHUB_WORKSPACE/Scripts/Packages_small.sh
+            bash "$GITHUB_WORKSPACE/Scripts/Packages_small.sh"
           else
             echo ">> Using standard Packages.sh"
-            bash $GITHUB_WORKSPACE/Scripts/Packages.sh
+            bash "$GITHUB_WORKSPACE/Scripts/Packages.sh"
           fi
-          cd ./package/
-          bash $GITHUB_WORKSPACE/Scripts/Handles.sh
+          cd ./package/ && bash "$GITHUB_WORKSPACE/Scripts/Handles.sh"
 
       - name: Custom Settings(自定义设置)
         run: |
@@ -163,16 +166,13 @@ jobs:
             cat "$GITHUB_WORKSPACE/Config/$WRT_CONFIG.txt" "$GITHUB_WORKSPACE/Config/GENERAL.txt" >> .config
           fi
           chmod +x "$GITHUB_WORKSPACE/Scripts/Settings.sh"
-          dos2unix "$GITHUB_WORKSPACE/Scripts/Settings.sh"
+          dos2unix "$GITHUB_WORKSPACE/Scripts/Settings.sh" || true
           "$GITHUB_WORKSPACE/Scripts/Settings.sh"
           make defconfig -j"$(nproc)" && make clean -j"$(nproc)"
 
       - name: Download Packages(下载依赖)
         if: env.WRT_TEST != 'true'
-        run: |
-          cd ./wrt/ && make download -j"$(nproc)"
-          # ⚠️ 取消 token 化的 github.com 替换，避免 LLVM/Rust 读取 remote 时报“含密码 URL”
-          git config --global --unset-all url."https://${GITHUB_ACTOR}:${GITHUB_TOKEN}@github.com/".insteadOf || true
+        run: cd ./wrt/ && make download -j"$(nproc)"
 
       - name: Compile Firmware(编译固件)
         if: env.WRT_TEST != 'true'
@@ -189,28 +189,45 @@ jobs:
           cd ./wrt/ && mkdir -p ./upload/
           cp -f ./.config "./upload/Config-${WRT_CONFIG}-${WRT_INFO}-${WRT_BRANCH}-${WRT_DATE}.txt" || true
 
-          # 兜底推断 WRT_TARGET
+          # 兜底推断 WRT_TARGET（为空时）
           if [ -z "${WRT_TARGET}" ] || [ "${WRT_TARGET}" = " " ]; then
-            GUESS=$(find ./bin/targets -maxdepth 2 -type d -printf "%P\n" | head -n1 | cut -d'/' -f1)
-            [ -n "$GUESS" ] && echo "WRT_TARGET=$GUESS" >> $GITHUB_ENV
+            GUESS="$(find ./bin/targets -mindepth 2 -maxdepth 2 -type d -printf "%P\n" 2>/dev/null | head -n1 | cut -d'/' -f1)"
+            if [ -n "$GUESS" ]; then
+              echo "WRT_TARGET=$GUESS" >> $GITHUB_ENV
+            fi
           fi
 
-          if [[ $WRT_TEST != 'true' ]]; then
-            echo "WRT_KVER=$(find ./bin/targets/ -type f -name "*.manifest" -exec grep -oP '^kernel - \\K[\\d\\.]+' {} \\; | head -n1)" >> $GITHUB_ENV || true
-            echo "WRT_LIST=$(find ./bin/targets/ -type f -name "*.manifest" -exec grep -oP '^luci-(app|theme)[^ ]*' {} \\; | tr '\\n' ' ')" >> $GITHUB_ENV || true
-            echo "NSS_FIRMWARE_VERSION=$(grep -oP '^CONFIG_NSS_FIRMWARE_VERSION_\\K[\\d_]+' .config | sed 's/_/./g' | head -n1)" >> $GITHUB_ENV || true
+          if [[ "${WRT_TEST}" != "true" ]]; then
+            # —— 安全计算环境变量，避免在 echo 中嵌套管道引起语法问题 ——
+            KVER="$(grep -h -oP '^kernel - \\K[\\d\\.]+' ./bin/targets/*/*/*.manifest 2>/dev/null | head -n1)"
+            LIST="$(grep -h -oP '^luci-(app|theme)[^ ]*' ./bin/targets/*/*/*.manifest 2>/dev/null | tr '\\n' ' ')"
+            NSS="$(grep -oP '^CONFIG_NSS_FIRMWARE_VERSION_\\K[\\d_]+' .config 2>/dev/null | sed 's/_/./g' | head -n1)"
+            {
+              [ -n "$KVER" ] && echo "WRT_KVER=$KVER"
+              [ -n "$LIST" ] && echo "WRT_LIST=$LIST"
+              [ -n "$NSS" ] && echo "NSS_FIRMWARE_VERSION=$NSS"
+            } >> "$GITHUB_ENV"
 
-            find ./bin/targets/ -iregex ".*(buildinfo|json|sha256sums|packages)$" -exec rm -rf {} + || true
+            # 清理多余文件
+            find ./bin/targets/ -iregex '.*\\(buildinfo\\|json\\|sha256sums\\|packages\\)$' -exec rm -rf {} + || true
 
+            # 统一重命名并移动到 upload
+            TARGET_GLOB="*${WRT_TARGET:-}*"
             while IFS= read -r -d '' FILE; do
-              EXT=$(basename "$FILE" | cut -d '.' -f 2-)
-              NAME=$(basename "$FILE" | cut -d '.' -f 1 | grep -io "(${WRT_TARGET}).*")
-              if [ -z "$NAME" ]; then NAME=$(basename "$FILE" | cut -d '.' -f 1); fi
+              BASENAME="$(basename "$FILE")"
+              EXT="${BASENAME#*.}"
+              NAME="${BASENAME%%.*}"
+              # 尝试从文件名前缀截取目标名
+              if echo "$NAME" | grep -qiE "(${WRT_TARGET})"; then
+                NAME="$(echo "$NAME" | grep -ioE "(${WRT_TARGET}).*")"
+              fi
               NEW_FILE="${WRT_INFO}-${WRT_BRANCH}-${NAME}-${WRT_DATE}.${EXT}"
               mv -f "$FILE" "./upload/$NEW_FILE" || true
-            done < <(find ./bin/targets/ -type f -iname "*$WRT_TARGET*" -print0)
+            done < <(find ./bin/targets/ -type f -iname "$TARGET_GLOB" -print0 2>/dev/null)
 
-            find ./bin/targets/ -type f -exec mv -f {} ./upload/ \; || true
+            # 兜底把剩余文件也搬过去，保证发布不空
+            find ./bin/targets/ -type f -print0 2>/dev/null | xargs -0 -I{} mv -f "{}" ./upload/ || true
+
             export LDFLAGS="-fuse-ld=lld"
             make clean -j"$(nproc)" || true
           fi
