@@ -55,12 +55,6 @@ env:
   WRT_SOURCE: ${{ inputs.WRT_SOURCE }}
   WRT_PACKAGE: ${{ inputs.WRT_PACKAGE }}
   WRT_TEST: ${{ inputs.WRT_TEST }}
-  # 让 CMake/LLVM 里可能的 VersionFromVCS/FetchContent 用到带认证的 GitHub，避免在“大内存版”里因为环境不同而失败
-  GIT_TERMINAL_PROMPT: "1"
-  GIT_ASKPASS: "echo"
-  # 某些三方构建脚本会直接用 https://github.com/* 拉代码；我们在下面也做了 insteadOf，但这里再兜底一次
-  GIT_HTTP_LOW_SPEED_LIMIT: "1"
-  GIT_HTTP_LOW_SPEED_TIME: "600"
 
 jobs:
   core:
@@ -113,13 +107,12 @@ jobs:
           echo "WRT_DATE=$(TZ=UTC-8 date +"%y.%m.%d-%H.%M.%S")" >> $GITHUB_ENV
           echo "WRT_MARK=${GITHUB_REPOSITORY%%/*}" >> $GITHUB_ENV
           echo "WRT_INFO=${WRT_SOURCE%%/*}" >> $GITHUB_ENV
-          echo "WRT_TARGET=$(grep -m 1 -oP '^CONFIG_TARGET_\\K[\\w]+(?=\\=y)' ./Config/$WRT_CONFIG.txt)" >> $GITHUB_ENV
+          echo "WRT_TARGET=$(grep -m 1 -oP '^CONFIG_TARGET_\\K[\\w]+(?==y)' ./Config/$WRT_CONFIG.txt || true)" >> $GITHUB_ENV
           echo "WRT_KVER=none" >> $GITHUB_ENV
           echo "WRT_LIST=none" >> $GITHUB_ENV
           sudo mkdir -p $OPENWRT_PATH/build_wrt
           sudo chown $USER:$USER $OPENWRT_PATH/build_wrt
           sudo ln -s $OPENWRT_PATH/build_wrt $GITHUB_WORKSPACE/wrt
-          mkdir -p $GITHUB_WORKSPACE/_logs
 
       - name: Clone Code(拉取固件源码)
         run: |
@@ -127,14 +120,13 @@ jobs:
           cd ./wrt/ && echo "WRT_HASH=$(git log -1 --pretty=format:'%h')" >> $GITHUB_ENV
           PROJECT_MIRRORS_FILE="./scripts/projectsmirrors.json"
           if [ -f "$PROJECT_MIRRORS_FILE" ]; then
-            sed -i '/.cn\\//d; /tencent/d; /aliyun/d' "$PROJECT_MIRRORS_FILE"
+            sed -i '/.cn\//d; /tencent/d; /aliyun/d' "$PROJECT_MIRRORS_FILE"
           fi
 
       - name: Check Scripts(统一执行权限)
         run: |
-          find ./ -maxdepth 3 -type f -iregex ".*(txt|sh)$" -exec dos2unix {} \\; -exec chmod +x {} \\;
+          find ./ -maxdepth 3 -type f -iregex ".*(txt|sh)$" -exec dos2unix {} \; -exec chmod +x {} \;
 
-      # ⚠️ 把所有 https://github.com/* 的 clone 改为带 GITHUB_TOKEN 的认证 URL（给所有后续脚本兜底）
       - name: Prepare authenticated GitHub clone(配置认证克隆)
         run: |
           git config --global url."https://${GITHUB_ACTOR}:${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
@@ -144,21 +136,21 @@ jobs:
       - name: Update Feeds(更新软件包源)
         run: |
           cd ./wrt/
-          ./scripts/feeds update -a 2>&1 | tee $GITHUB_WORKSPACE/_logs/feeds_update.log
-          ./scripts/feeds install -a 2>&1 | tee $GITHUB_WORKSPACE/_logs/feeds_install.log
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
 
       - name: Custom Packages(自定义软件包)
         run: |
           cd ./wrt/
           if [[ "${WRT_CONFIG,,}" == *"small"* || "${WRT_CONFIG,,}" == *"samll"* ]]; then
             echo ">> Detected SMALL config, using Packages_small.sh"
-            bash $GITHUB_WORKSPACE/Scripts/Packages_small.sh 2>&1 | tee -a $GITHUB_WORKSPACE/_logs/packages.log
+            bash $GITHUB_WORKSPACE/Scripts/Packages_small.sh
           else
             echo ">> Using standard Packages.sh"
-            bash $GITHUB_WORKSPACE/Scripts/Packages.sh 2>&1 | tee -a $GITHUB_WORKSPACE/_logs/packages.log
+            bash $GITHUB_WORKSPACE/Scripts/Packages.sh
           fi
           cd ./package/
-          bash $GITHUB_WORKSPACE/Scripts/Handles.sh 2>&1 | tee -a $GITHUB_WORKSPACE/_logs/packages.log
+          bash $GITHUB_WORKSPACE/Scripts/Handles.sh
 
       - name: Custom Settings(自定义设置)
         run: |
@@ -168,77 +160,84 @@ jobs:
           else
             cat "$GITHUB_WORKSPACE/Config/$WRT_CONFIG.txt" "$GITHUB_WORKSPACE/Config/GENERAL.txt" >> .config
           fi
-          "$GITHUB_WORKSPACE/Scripts/Settings.sh" 2>&1 | tee -a $GITHUB_WORKSPACE/_logs/settings.log
-          make defconfig -j"$(nproc)" 2>&1 | tee -a $GITHUB_WORKSPACE/_logs/make_defconfig.log
-          make clean -j"$(nproc)" 2>&1 | tee -a $GITHUB_WORKSPACE/_logs/make_clean.log
+          "$GITHUB_WORKSPACE/Scripts/Settings.sh"
+          make defconfig -j"$(nproc)" && make clean -j"$(nproc)"
 
       - name: Download Packages(下载依赖)
         if: env.WRT_TEST != 'true'
-        run: |
-          cd ./wrt/
-          make download -j"$(nproc)" 2>&1 | tee $GITHUB_WORKSPACE/_logs/make_download.log
+        run: cd ./wrt/ && make download -j"$(nproc)"
 
-      # ✅ 关键：失败自动切到 -j1 V=s，并把完整日志保存为 artifact
       - name: Compile Firmware(编译固件)
         if: env.WRT_TEST != 'true'
         run: |
-          set -o pipefail
           cd ./wrt/
           if [[ "${WRT_CONFIG,,}" == *"small"* || "${WRT_CONFIG,,}" == *"samll"* ]]; then
-            ( time make -j"$(nproc)" ) 2>&1 | tee $GITHUB_WORKSPACE/_logs/make_parallel.log
-            status=${PIPESTATUS[0]}
-            if [ $status -ne 0 ]; then
-              echo "==== parallel build failed; retry verbose ===="
-              ( time make -j"$(nproc)" V=s ) 2>&1 | tee $GITHUB_WORKSPACE/_logs/make_verbose_retry.log
-              status=${PIPESTATUS[0]}
-            fi
-            exit $status
+            make -j"$(nproc)" || make -j"$(nproc)" V=s
           else
-            ( time make -j"$(nproc)" ) 2>&1 | tee $GITHUB_WORKSPACE/_logs/make_parallel.log
-            status=${PIPESTATUS[0]}
-            if [ $status -ne 0 ]; then
-              echo "==== parallel build failed; retry serial with verbose ====" | tee -a $GITHUB_WORKSPACE/_logs/make_parallel.log
-              ( time make -j1 V=s ) 2>&1 | tee $GITHUB_WORKSPACE/_logs/make_serial_verbose.log
-              status=${PIPESTATUS[0]}
-            fi
-            exit $status
+            make -j"$(nproc)" || { echo "==== parallel build failed; retry serial with verbose ===="; make -j1 V=s; }
           fi
 
       - name: Package Firmware(打包固件)
-        if: always()  # 失败时也会保留已生成的信息
         run: |
+          set +e
           cd ./wrt/ && mkdir -p ./upload/
-          cp -f ./.config ./upload/Config-"$WRT_CONFIG"-"$WRT_INFO"-"$WRT_BRANCH"-"$WRT_DATE".txt || true
-          if [[ $WRT_TEST != 'true' ]]; then
-            echo "WRT_KVER=$(find ./bin/targets/ -type f -name "*.manifest" -exec grep -oP '^kernel - \\K[\\d\\.]+' {} \\; | head -n1)" >> $GITHUB_ENV || true
-            echo "WRT_LIST=$(find ./bin/targets/ -type f -name "*.manifest" -exec grep -oP '^luci-(app|theme)[^ ]*' {} \\; | tr '\\n' ' ')" >> $GITHUB_ENV || true
-            echo "NSS_FIRMWARE_VERSION=$(grep -oP '^CONFIG_NSS_FIRMWARE_VERSION_\\K[\\d_]+' .config | sed 's/_/./g' | head -n1)" >> $GITHUB_ENV || true
-            find ./bin/targets/ -iregex ".*(buildinfo|json|sha256sums|packages)$" -exec rm -rf {} + || true
-            while IFS= read -r -d '' FILE; do
-              EXT=$(basename "$FILE" | cut -d '.' -f 2-)
-              NAME=$(basename "$FILE" | cut -d '.' -f 1 | grep -io "(${WRT_TARGET}).*")
-              NEW_FILE="${WRT_INFO}-${WRT_BRANCH}-${NAME}-${WRT_DATE}.${EXT}"
-              mv -f "$FILE" "./upload/$NEW_FILE" || true
-            done < <(find ./bin/targets/ -type f -iname "*$WRT_TARGET*" -print0)
-            find ./bin/targets/ -type f -exec mv -f {} ./upload/ \\; || true
-            export LDFLAGS="-fuse-ld=lld"
-            make clean -j"$(nproc)" || true
+
+          # 尝试复制 .config（不存在则忽略）
+          cp -f ./.config "./upload/Config-${WRT_CONFIG}-${WRT_INFO}-${WRT_BRANCH}-${WRT_DATE}.txt" 2>/dev/null || true
+
+          # 如果 WRT_TARGET 为空，尝试从 bin 目录或 .config 推断
+          if [ -z "${WRT_TARGET}" ]; then
+            if [ -d "./bin/targets" ]; then
+              topdir="$(find ./bin/targets -mindepth 1 -maxdepth 1 -type d -printf "%f\n" | head -n1)"
+              subdir="$( [ -n "$topdir" ] && find "./bin/targets/$topdir" -mindepth 1 -maxdepth 1 -type d -printf "%f\n" | head -n1 )"
+              [ -n "$subdir" ] && WRT_TARGET="$subdir" || WRT_TARGET="$topdir"
+            fi
+            if [ -z "${WRT_TARGET}" ] && [ -f .config ]; then
+              WRT_TARGET="$(grep -m1 -oE '^CONFIG_TARGET_[^=]+' .config | sed 's/^CONFIG_TARGET_//' | head -n1)"
+            fi
+            echo "WRT_TARGET=${WRT_TARGET}" >> $GITHUB_ENV
           fi
 
-      - name: Upload full logs(上传构建日志)
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: WRT-CORE-full-logs-${{ env.WRT_DATE }}
-          path: |
-            _logs/**
-            wrt/_logs/**
-            wrt/upload/Config-*.txt
-          if-no-files-found: ignore
-          retention-days: 7
+          # 读取 kernel 版本（不使用 grep -P，避免 \K 转义）
+          if ls ./bin/targets/*/*/*.manifest >/dev/null 2>&1; then
+            KVER="$(awk '/^kernel - /{print $3; exit}' ./bin/targets/*/*/*.manifest)"
+            [ -n "$KVER" ] && echo "WRT_KVER=${KVER}" >> $GITHUB_ENV
+            # 收集 luci app/theme 列表
+            LUCI_LIST="$(awk '/^luci-(app|theme)/{printf "%s ", $1}' ./bin/targets/*/*/*.manifest)"
+            [ -n "$LUCI_LIST" ] && echo "WRT_LIST=${LUCI_LIST}" >> $GITHUB_ENV
+          fi
+
+          # NSS 固件版本（无需 PCRE）
+          if [ -f .config ]; then
+            NSS_VER="$(grep -E '^CONFIG_NSS_FIRMWARE_VERSION_' .config | head -n1 | sed -E 's/^CONFIG_NSS_FIRMWARE_VERSION_([0-9_]+)=y/\1/' | tr '_' '.')"
+            [ -n "$NSS_VER" ] && echo "NSS_FIRMWARE_VERSION=${NSS_VER}" >> $GITHUB_ENV
+          fi
+
+          # 清理不需要的文件
+          find ./bin/targets/ -iregex '.*\(buildinfo\|json\|sha256sums\|packages\)$' -exec rm -rf {} + 2>/dev/null || true
+
+          # 重命名/移动产物
+          if [ -n "${WRT_TARGET}" ]; then
+            while IFS= read -r -d '' FILE; do
+              base="$(basename "$FILE")"
+              ext="${base#*.}"
+              name="${base%%.*}"
+              if echo "$name" | grep -qi "^${WRT_TARGET}"; then
+                pick="$name"
+              else
+                pick="$name"
+              fi
+              mv -f "$FILE" "./upload/${WRT_INFO}-${WRT_BRANCH}-${pick}-${WRT_DATE}.${ext}" || true
+            done < <(find ./bin/targets/ -type f -iname "*${WRT_TARGET}*" -print0)
+          fi
+
+          # 兜底：把剩余的目标文件挪到 upload
+          find ./bin/targets/ -type f -exec mv -f {} ./upload/ \; 2>/dev/null || true
+
+          export LDFLAGS="-fuse-ld=lld"
+          make clean -j"$(nproc)" || true
 
       - name: Release Firmware(发布固件)
-        if: env.WRT_TEST != 'true'
         uses: softprops/action-gh-release@master
         with:
           tag_name: ${{ env.WRT_CONFIG }}-${{ env.WRT_INFO }}-${{ env.WRT_BRANCH }}-${{ env.WRT_DATE }}
