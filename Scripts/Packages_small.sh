@@ -1,61 +1,91 @@
-#!/bin/bash
-# ======================================================
-#  Scripts/Packages_small.sh（SMALL 机型 / 极简外源包）
-#  - 仅保留：homeproxy + nikki + luci-app-momo (+ gecoosac + netspeedtest)
-#  - 提供 sing-box（从 immortalwrt/packages sparse 抽取）
-#  - 主题：jerrykuku 的 argon + argon-config
-# ======================================================
-
+#!/usr/bin/env bash
 set -e
-WRT_ROOT="${GITHUB_WORKSPACE}/wrt"
-PKG_DIR="${WRT_ROOT}/package"
 
-echo "=============================="
-echo " SMALL Packages_small.sh started..."
-echo "  - WRT_ROOT : ${WRT_ROOT}"
-echo "  - PKG_DIR  : ${PKG_DIR}"
-echo "=============================="
+# 作用：在 SMALL/SMAL 配置下，幂等地为 .config 追加常见 USB/串口/存储/网卡能力，避免过度精简导致 RNDIS/USB 无法识别。
+# 使用：在工作流的 “Custom Packages(自定义软件包)” 步骤中执行本脚本。
+# 注意：如果 .config 已启用对应项，本脚本不会重复写入。
 
-cd "${WRT_ROOT}"
-
-add_singbox_sparse() {
-  local tmpdir
-  tmpdir="$(mktemp -d)"
-  echo ">> Adding sing-box (sparse from immortalwrt/packages)"
-  git clone --depth=1 --filter=blob:none https://github.com/immortalwrt/packages "${tmpdir}"
-  (
-    cd "${tmpdir}"
-    git sparse-checkout init --cone
-    git sparse-checkout set net/sing-box
-  )
-  rm -rf "${PKG_DIR}/sing-box"
-  mkdir -p "${PKG_DIR}"
-  cp -a "${tmpdir}/net/sing-box" "${PKG_DIR}/"
-  rm -rf "${tmpdir}"
-}
-
-# 1) sing-box 兜底
-if [ ! -d "${PKG_DIR}/sing-box" ] && ! find feeds -maxdepth 3 -type f -path "*/sing-box/Makefile" | grep -q .; then
-  add_singbox_sparse
+ROOT_DIR="$(pwd)"
+if [ -f "./feeds.conf" ] && [ -d "./package" ] && [ -d "./target" ]; then
+  WRT_ROOT="$ROOT_DIR"
+else
+  # 若不在源码根目录，尝试回到 wrt 源码目录
+  if [ -d "./wrt" ] && [ -f "./wrt/feeds.conf" ]; then
+    WRT_ROOT="./wrt"
+  else
+    echo "[Packages_small] 未找到 OpenWrt 源码目录" >&2
+    exit 0
+  fi
 fi
 
-cd "${PKG_DIR}"
+cd "$WRT_ROOT"
 
-# 2) 主题（用 jerrykuku）
-rm -rf "${PKG_DIR}/luci-theme-argon" "${PKG_DIR}/luci-app-argon-config"
-git clone --depth=1 https://github.com/jerrykuku/luci-theme-argon
-git clone --depth=1 https://github.com/jerrykuku/luci-app-argon-config
+# 仅在 SMALL/SMAL 配置时启用
+shopt -s nocasematch
+if [[ "${WRT_CONFIG}" != *"SMALL"* && "${WRT_CONFIG}" != *"SMAL"* ]]; then
+  echo "[Packages_small] 非 SMALL/SMAL 配置，跳过兜底追加"
+  exit 0
+fi
+shopt -u nocasematch
 
-# 3) 轻量外源包（按你的要求）
-git clone --depth=1 https://github.com/VIKINGYFY/homeproxy          homeproxy
-git clone --depth=1 https://github.com/nikkinikki-org/OpenWrt-nikki nikki
-git clone --depth=1 https://github.com/nikkinikki-org/OpenWrt-momo  OpenWrt-momo
-git clone --depth=1 https://github.com/lwb1978/openwrt-gecoosac     openwrt-gecoosac
-git clone --depth=1 -b js https://github.com/sirpdboy/luci-app-netspeedtest luci-app-netspeedtest
+CONFIG_FILE=".config"
+touch "$CONFIG_FILE"
 
-# 4) 清掉 .git
-find "${PKG_DIR}" -type d -name ".git" -prune -exec rm -rf {} +
+append_cfg () {
+  local key="$1"
+  if ! grep -qE "^${key}(=y|=m)$" "$CONFIG_FILE"; then
+    echo "${key}=y" >> "$CONFIG_FILE"
+  fi
+}
 
-echo ">> SMALL package set prepared successfully!"
-echo ">> Installed lightweight apps:"
-printf '%s\n' homeproxy nikki OpenWrt-momo sing-box openwrt-gecoosac luci-app-netspeedtest
+# ===== USB Host 控制器 =====
+append_cfg CONFIG_PACKAGE_kmod-usb-core
+append_cfg CONFIG_PACKAGE_kmod-usb2
+append_cfg CONFIG_PACKAGE_kmod-usb3
+append_cfg CONFIG_PACKAGE_kmod-usb-ohci
+append_cfg CONFIG_PACKAGE_kmod-usb-ehci
+append_cfg CONFIG_PACKAGE_kmod-usb-ohci-pci
+append_cfg CONFIG_PACKAGE_kmod-usb-ehci-pci
+append_cfg CONFIG_PACKAGE_kmod-usb-xhci-hcd
+append_cfg CONFIG_PACKAGE_kmod-usb-xhci-pci
+
+# ===== USB 网络 =====
+append_cfg CONFIG_PACKAGE_kmod-usb-net
+append_cfg CONFIG_PACKAGE_kmod-usb-net-rndis
+append_cfg CONFIG_PACKAGE_kmod-usb-net-cdc-ether
+append_cfg CONFIG_PACKAGE_kmod-usb-net-cdc-ncm
+append_cfg CONFIG_PACKAGE_kmod-usb-net-cdc-mbim
+append_cfg CONFIG_PACKAGE_kmod-usb-net-asix
+append_cfg CONFIG_PACKAGE_kmod-usb-net-asix-ax88179
+append_cfg CONFIG_PACKAGE_kmod-usb-net-rtl8152
+
+# ===== USB 串口 =====
+append_cfg CONFIG_PACKAGE_kmod-usb-serial
+append_cfg CONFIG_PACKAGE_kmod-usb-serial-ftdi
+append_cfg CONFIG_PACKAGE_kmod-usb-serial-ch341
+append_cfg CONFIG_PACKAGE_kmod-usb-serial-cp210x
+append_cfg CONFIG_PACKAGE_kmod-usb-serial-option
+append_cfg CONFIG_PACKAGE_kmod-usb-net-wwan
+
+# ===== 存储与文件系统 =====
+append_cfg CONFIG_PACKAGE_kmod-usb-storage
+append_cfg CONFIG_PACKAGE_kmod-usb-storage-extras
+append_cfg CONFIG_PACKAGE_kmod-usb-storage-uas
+append_cfg CONFIG_PACKAGE_block-mount
+append_cfg CONFIG_PACKAGE_e2fsprogs
+append_cfg CONFIG_PACKAGE_kmod-fs-ext4
+append_cfg CONFIG_PACKAGE_kmod-fs-vfat
+append_cfg CONFIG_PACKAGE_kmod-fs-exfat
+append_cfg CONFIG_PACKAGE_kmod-fs-ntfs
+
+# ===== NLS 编码 =====
+append_cfg CONFIG_PACKAGE_kmod-nls-base
+append_cfg CONFIG_PACKAGE_kmod-nls-cp437
+append_cfg CONFIG_PACKAGE_kmod-nls-iso8859-1
+append_cfg CONFIG_PACKAGE_kmod-nls-utf8
+
+# ===== 工具 =====
+append_cfg CONFIG_PACKAGE_usbutils
+append_cfg CONFIG_PACKAGE_usb-modeswitch
+
+echo "[Packages_small] 已为 SMALL/SMAL 追加常用 USB/存储/串口/网卡能力"
