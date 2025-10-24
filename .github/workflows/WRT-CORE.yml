@@ -65,24 +65,21 @@ jobs:
         run: |
           echo "警告⚠"
           echo "分配的服务器性能有限，若选择的插件过多，务必注意CPU性能！"
-          echo -e "已知CPU型号（降序）：7763，8370C，8272CL，8171M，E5-2673 
-"
+          echo -e "已知CPU型号（降序）：7763，8370C，8272CL，8171M，E5-2673 \n"
           echo "--------------------------CPU信息--------------------------"
-          echo "CPU物理数量：$(cat /proc/cpuinfo | grep "physical id" | sort | uniq | wc -l)"
-          echo -e "CPU核心信息：$(cat /proc/cpuinfo | grep name | cut -f2 -d: | uniq -c) 
-"
+          echo "CPU物理数量：$(cat /proc/cpuinfo | grep 'physical id' | sort | uniq | wc -l)"
+          echo -e "CPU核心信息：$(cat /proc/cpuinfo | grep name | cut -f2 -d: | uniq -c) \n"
           echo "--------------------------内存信息--------------------------"
           echo "已安装内存详细信息："
-          echo -e "$(sudo lshw -short -C memory | grep GiB) 
-"
+          echo -e "$(sudo lshw -short -C memory | grep GiB) \n"
           echo "--------------------------硬盘信息--------------------------"
-          echo "硬盘数量：$(ls /dev/sd* | grep -v [1-9] | wc -l)" && df -hT
+          echo "硬盘数量：$(ls /dev/sd* 2>/dev/null | grep -v [1-9] | wc -l)" && df -hT
 
       - name: Initialization Environment(安装依赖环境)
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
-          sudo -E apt -yqq purge firefox
+          sudo -E apt -yqq purge firefox || true
           sudo -E apt -yqq update
           sudo -E apt -yqq full-upgrade
           sudo -E apt -yqq autoremove --purge
@@ -92,7 +89,6 @@ jobs:
           sudo bash -c 'bash <(curl -sL https://build-scripts.immortalwrt.org/init_build_environment.sh)'
           sudo -E systemctl daemon-reload
           sudo -E timedatectl set-timezone "Asia/Shanghai"
-
           echo "OPENWRT_PATH=$PWD" >> $GITHUB_ENV
 
       - name: Combine Disks(合并磁盘)
@@ -103,32 +99,33 @@ jobs:
           root-reserve-mb: 2048
 
       - name: Checkout Projects(拉取云编译仓库脚本)
-        uses: actions/checkout@main
+        uses: actions/checkout@v4
 
       - name: Check Scripts(统一执行权限)
         shell: bash
         run: |
           set -e
           find . -maxdepth 3 -type f \( -iname "*.txt" -o -iname "*.sh" \)             -exec sh -c 'for f; do dos2unix "$f" || true; chmod +x "$f" || true; done' sh {} +
+          chmod +x "$GITHUB_WORKSPACE/Scripts/"*.sh || true
 
       - name: Initialization Values(初始化变量)
         run: |
-          echo "WRT_DATE=$(TZ=UTC-8 date +"%y.%m.%d-%H.%M.%S")" >> $GITHUB_ENV
+          echo "WRT_DATE=$(TZ=UTC-8 date +'%y.%m.%d-%H.%M.%S')" >> $GITHUB_ENV
           echo "WRT_MARK=${GITHUB_REPOSITORY%%/*}" >> $GITHUB_ENV
           echo "WRT_INFO=${WRT_SOURCE%%/*}" >> $GITHUB_ENV
-          echo "WRT_TARGET=$(grep -m 1 -oP '^CONFIG_TARGET_\K[\w]+(?==y)' ./Config/$WRT_CONFIG.txt || true)" >> $GITHUB_ENV
           echo "WRT_KVER=none" >> $GITHUB_ENV
           echo "WRT_LIST=none" >> $GITHUB_ENV
-          sudo mkdir -p $OPENWRT_PATH/build_wrt
-          sudo chown $USER:$USER $OPENWRT_PATH/build_wrt
-          sudo ln -s $OPENWRT_PATH/build_wrt $GITHUB_WORKSPACE/wrt || true
+          sudo mkdir -p "$OPENWRT_PATH/build_wrt"
+          sudo chown "$USER:$USER" "$OPENWRT_PATH/build_wrt"
+          ln -s "$OPENWRT_PATH/build_wrt" "$GITHUB_WORKSPACE/wrt" || true
 
       - name: Clone Code(拉取固件源码)
+        shell: bash
         run: |
+          set -e
           git clone --depth=1 --single-branch --branch "$WRT_BRANCH" "$WRT_REPO" ./wrt/
-          cd ./wrt/ && echo "WRT_HASH=$(git log -1 --pretty=format:'%h')" >> $GITHUB_ENV
-
-          # 清理 mirrors 中的国内镜像（用 awk，避免 sed 分隔符问题）
+          cd ./wrt/
+          echo "WRT_HASH=$(git log -1 --pretty=format:'%h')" >> $GITHUB_ENV
           PROJECT_MIRRORS_FILE="./scripts/projectsmirrors.json"
           if [ -f "$PROJECT_MIRRORS_FILE" ]; then
             awk '!/\.cn\/|tencent|aliyun/' "$PROJECT_MIRRORS_FILE" > "$PROJECT_MIRRORS_FILE.tmp" && mv -f "$PROJECT_MIRRORS_FILE.tmp" "$PROJECT_MIRRORS_FILE"
@@ -141,16 +138,18 @@ jobs:
           git config --global http.lowSpeedTime 600
 
       - name: Update Feeds(更新软件包源)
+        shell: bash
         run: |
+          set -e
           cd ./wrt/
           ./scripts/feeds update -a
           ./scripts/feeds install -a
-
-          # 立刻撤销 token 化 URL，避免 LLVM/Rust CMake 报“embedded password”
           git config --global --unset-all url."https://${GITHUB_ACTOR}:${GITHUB_TOKEN}@github.com/".insteadOf || true
 
       - name: Custom Packages(自定义软件包)
+        shell: bash
         run: |
+          set -e
           cd ./wrt/
           if [[ "${WRT_CONFIG,,}" == *"small"* || "${WRT_CONFIG,,}" == *"samll"* ]]; then
             echo ">> Detected SMALL config, using Packages_small.sh"
@@ -161,39 +160,28 @@ jobs:
           fi
           cd ./package/ && bash "$GITHUB_WORKSPACE/Scripts/Handles.sh"
 
-      - name: Custom Settings(自定义设置 + homeproxy/sing-box 覆写)
+      - name: Custom Settings(自定义设置)
+        shell: bash
         run: |
+          set -e
           cd ./wrt/
-          # 合并配置
           if [[ "${WRT_CONFIG,,}" == *"test"* || "${WRT_CONFIG,,}" == *"small"* || "${WRT_CONFIG,,}" == *"samll"* ]]; then
             cat "$GITHUB_WORKSPACE/Config/$WRT_CONFIG.txt" >> .config
           else
             cat "$GITHUB_WORKSPACE/Config/$WRT_CONFIG.txt" "$GITHUB_WORKSPACE/Config/GENERAL.txt" >> .config
           fi
-
-          # 强制打开 homeproxy + sing-box（默认对非 SMALL 开；如需 SMALL 也开，把 if 去掉或反注释下面一行）
-          #if [[ "${WRT_CONFIG,,}" != *"small"* && "${WRT_CONFIG,,}" != *"samll"* ]]; then
-            sed -i '/^CONFIG_PACKAGE_luci-app-homeproxy=/d' .config
-            echo 'CONFIG_PACKAGE_luci-app-homeproxy=y' >> .config
-
-            sed -i '/^CONFIG_PACKAGE_sing-box=/d' .config
-            echo 'CONFIG_PACKAGE_sing-box=y' >> .config
-
-            # 关掉其他可选核心，避免冲突
-            sed -i '/^CONFIG_PACKAGE_xray-core=/d' .config
-            echo 'CONFIG_PACKAGE_xray-core=n' >> .config
-            sed -i '/^CONFIG_PACKAGE_v2ray-core=/d' .config
-            echo 'CONFIG_PACKAGE_v2ray-core=n' >> .config
-
-            # 如需 GEO 数据，取消注释
-            # sed -i '/^CONFIG_PACKAGE_v2ray-geoip=/d' .config && echo 'CONFIG_PACKAGE_v2ray-geoip=y' >> .config
-            # sed -i '/^CONFIG_PACKAGE_v2ray-geosite=/d' .config && echo 'CONFIG_PACKAGE_v2ray-geosite=y' >> .config
-          fi
-
           chmod +x "$GITHUB_WORKSPACE/Scripts/Settings.sh"
           dos2unix "$GITHUB_WORKSPACE/Scripts/Settings.sh" || true
           "$GITHUB_WORKSPACE/Scripts/Settings.sh"
-
+          if [ -f "$GITHUB_WORKSPACE/Scripts/Settings_homeproxy_singbox_append.sh" ]; then
+            chmod +x "$GITHUB_WORKSPACE/Scripts/Settings_homeproxy_singbox_append.sh"
+            dos2unix "$GITHUB_WORKSPACE/Scripts/Settings_homeproxy_singbox_append.sh" || true
+            "$GITHUB_WORKSPACE/Scripts/Settings_homeproxy_singbox_append.sh"
+          fi
+          if [ -n "${WRT_PACKAGE}" ]; then
+            printf "%s\n" "${WRT_PACKAGE}" >> .config
+          fi
+          echo "WRT_TARGET=$(grep -m1 -oP '^CONFIG_TARGET_\K[\w]+' .config | head -n1 || true)" >> $GITHUB_ENV
           make defconfig -j"$(nproc)"
           make clean -j"$(nproc)"
 
@@ -203,13 +191,10 @@ jobs:
 
       - name: Compile Firmware(编译固件)
         if: env.WRT_TEST != 'true'
+        shell: bash
         run: |
+          set +e
           cd ./wrt/
-          # 为 sing-box/Go 生态做构建稳定化
-          export GOFLAGS="-buildvcs=false"
-          export GOPROXY="https://proxy.golang.org,direct"
-          export GOSUMDB="sum.golang.org"
-
           if [[ "${WRT_CONFIG,,}" == *"small"* || "${WRT_CONFIG,,}" == *"samll"* ]]; then
             make -j"$(nproc)" || make -j"$(nproc)" V=s
           else
@@ -217,21 +202,19 @@ jobs:
           fi
 
       - name: Package Firmware(打包固件)
+        shell: bash
         run: |
-          cd ./wrt/ && mkdir -p ./upload/
+          set -e
+          cd ./wrt/
+          mkdir -p ./upload/
           cp -f ./.config "./upload/Config-${WRT_CONFIG}-${WRT_INFO}-${WRT_BRANCH}-${WRT_DATE}.txt" || true
-
-          # 兜底推断 WRT_TARGET（为空时）
           if [ -z "${WRT_TARGET}" ] || [ "${WRT_TARGET}" = " " ]; then
-            GUESS="$(find ./bin/targets -mindepth 2 -maxdepth 2 -type d -printf "%P
-" 2>/dev/null | head -n1 | cut -d'/' -f1)"
+            GUESS="$(find ./bin/targets -mindepth 2 -maxdepth 2 -type d -printf "%P\n" 2>/dev/null | head -n1 | cut -d'/' -f1)"
             if [ -n "$GUESS" ]; then
               echo "WRT_TARGET=$GUESS" >> $GITHUB_ENV
             fi
           fi
-
           if [[ "${WRT_TEST}" != "true" ]]; then
-            # —— 先计算变量，再统一写入 GITHUB_ENV ——
             KVER="$(grep -h -oP '^kernel - \K[\d\.]+' ./bin/targets/*/*/*.manifest 2>/dev/null | head -n1)"
             LIST="$(grep -h -oP '^luci-(app|theme)[^ ]*' ./bin/targets/*/*/*.manifest 2>/dev/null | tr '\n' ' ')"
             NSS="$(grep -oP '^CONFIG_NSS_FIRMWARE_VERSION_\K[\d_]+' .config 2>/dev/null | sed 's/_/./g' | head -n1)"
@@ -240,11 +223,7 @@ jobs:
               [ -n "$LIST" ] && echo "WRT_LIST=$LIST"
               [ -n "$NSS" ] && echo "NSS_FIRMWARE_VERSION=$NSS"
             } >> "$GITHUB_ENV"
-
-            # 清理多余文件
             find ./bin/targets/ -iregex '.*\(buildinfo\|json\|sha256sums\|packages\)$' -exec rm -rf {} + || true
-
-            # 统一重命名并移动到 upload
             TARGET_GLOB="*${WRT_TARGET:-}*"
             while IFS= read -r -d '' FILE; do
               BASENAME="$(basename "$FILE")"
@@ -256,16 +235,13 @@ jobs:
               NEW_FILE="${WRT_INFO}-${WRT_BRANCH}-${NAME}-${WRT_DATE}.${EXT}"
               mv -f "$FILE" "./upload/$NEW_FILE" || true
             done < <(find ./bin/targets/ -type f -iname "$TARGET_GLOB" -print0 2>/dev/null)
-
-            # 兜底把剩余文件也搬过去
             find ./bin/targets/ -type f -print0 2>/dev/null | xargs -0 -I{} mv -f "{}" ./upload/ || true
-
             export LDFLAGS="-fuse-ld=lld"
             make clean -j"$(nproc)" || true
           fi
 
       - name: Release Firmware(发布固件)
-        uses: softprops/action-gh-release@master
+        uses: softprops/action-gh-release@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           tag_name: ${{ env.WRT_CONFIG }}-${{ env.WRT_INFO }}-${{ env.WRT_BRANCH }}-${{ env.WRT_DATE }}
