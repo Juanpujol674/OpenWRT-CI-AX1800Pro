@@ -13,7 +13,7 @@ CONFIG_PACKAGE_luci-app-autoreboot=y
 CONFIG_PACKAGE_luci-app-gecoosac=y
 CONFIG_PACKAGE_luci-app-netspeedtest=y
 CONFIG_PACKAGE_luci-app-partexp=y
-CONFIG_PACKAGE_luci-app-samba4=n
+CONFIG_PACKAGE_luci-app-samba4=y
 CONFIG_PACKAGE_luci-app-tailscale=y
 CONFIG_PACKAGE_luci-app-upnp=y
 CONFIG_PACKAGE_luci-app-wolplus=y
@@ -156,9 +156,9 @@ CONFIG_NSS_FIRMWARE_VERSION_12_5=y
 # ============================================================
 # CONFIG_PACKAGE_luci-app-qbittorrent=y
 CONFIG_PACKAGE_luci-app-adguardhome=y
-# CONFIG_PACKAGE_luci-app-filemanager=y
+CONFIG_PACKAGE_luci-app-filemanager=y
 CONFIG_PACKAGE_luci-app-caddy=y
-# CONFIG_PACKAGE_luci-app-gost=y
+CONFIG_PACKAGE_luci-app-gost=y
 CONFIG_PACKAGE_luci-app-lucky=y
 
 # luci-app-package-manager（替代老的 luci-app-opkg）
@@ -176,6 +176,6 @@ CONFIG_PACKAGE_crun=y      # 或 runc，二选一即可；podman 默认更偏好
 CONFIG_PACKAGE_fuse-overlayfs=y
 CONFIG_PACKAGE_kmod-fuse=y
 # 可选的 btrfs 存储驱动支持（不是必须）
-# CONFIG_PACKAGE_btrfs-progs=y
-# CONFIG_PACKAGE_kmod-fs-btrfs=y
+CONFIG_PACKAGE_btrfs-progs=y
+CONFIG_PACKAGE_kmod-fs-btrfs=y
 
