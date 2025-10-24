@@ -102,41 +102,32 @@ jobs:
       - name: Checkout Projects(拉取云编译仓库脚本)
         uses: actions/checkout@main
 
-      - name: Fix Script Permissions(修正脚本权限/换行)
-        shell: bash
-        run: |
-          set -e
-          find . -maxdepth 3 -type f \( -iname "*.txt" -o -iname "*.sh" \) \
-            -exec sh -c 'for f; do dos2unix "$f" || true; chmod +x "$f" || true; done' sh {} +
-          chmod +x "$GITHUB_WORKSPACE"/Scripts/*.sh || true
-
       - name: Initialization Values(初始化变量)
         run: |
           echo "WRT_DATE=$(TZ=UTC-8 date +"%y.%m.%d-%H.%M.%S")" >> $GITHUB_ENV
           echo "WRT_MARK=${GITHUB_REPOSITORY%%/*}" >> $GITHUB_ENV
           echo "WRT_INFO=${WRT_SOURCE%%/*}" >> $GITHUB_ENV
+          echo "WRT_TARGET=$(grep -m 1 -oP '^CONFIG_TARGET_\\K[\\w]+(?==y)' ./Config/$WRT_CONFIG.txt || true)" >> $GITHUB_ENV
           echo "WRT_KVER=none" >> $GITHUB_ENV
           echo "WRT_LIST=none" >> $GITHUB_ENV
-          # 从配置推断目标平台(空则不影响后面兜底)
-          if [ -f "./Config/$WRT_CONFIG.txt" ]; then
-            TGT=$(grep -m1 -oP '^CONFIG_TARGET_\K[\w]+(?==y)' "./Config/$WRT_CONFIG.txt" || true)
-            [ -n "$TGT" ] && echo "WRT_TARGET=$TGT" >> $GITHUB_ENV
-          fi
-          sudo mkdir -p "$OPENWRT_PATH/build_wrt"
-          sudo chown "$USER:$USER" "$OPENWRT_PATH/build_wrt"
-          ln -sf "$OPENWRT_PATH/build_wrt" "$GITHUB_WORKSPACE/wrt" || true
+          sudo mkdir -p $OPENWRT_PATH/build_wrt
+          sudo chown $USER:$USER $OPENWRT_PATH/build_wrt
+          sudo ln -s $OPENWRT_PATH/build_wrt $GITHUB_WORKSPACE/wrt
 
       - name: Clone Code(拉取固件源码)
         run: |
-          git clone --depth=1 --single-branch --branch "$WRT_BRANCH" "$WRT_REPO" ./wrt/
+          git clone --depth=1 --single-branch --branch $WRT_BRANCH $WRT_REPO ./wrt/
           cd ./wrt/ && echo "WRT_HASH=$(git log -1 --pretty=format:'%h')" >> $GITHUB_ENV
-          # 清理 mirrors 中的国内镜像（用 awk，避免 sed 分隔符问题）
           PROJECT_MIRRORS_FILE="./scripts/projectsmirrors.json"
           if [ -f "$PROJECT_MIRRORS_FILE" ]; then
-            awk '!/\.cn\/|tencent|aliyun/' "$PROJECT_MIRRORS_FILE" > "$PROJECT_MIRRORS_FILE.tmp" && mv -f "$PROJECT_MIRRORS_FILE.tmp" "$PROJECT_MIRRORS_FILE"
+            sed -i '/.cn\//d; /tencent/d; /aliyun/d' "$PROJECT_MIRRORS_FILE"
           fi
 
-      - name: Prepare authenticated GitHub clone(配置认证克隆，仅用于下载)
+      - name: Check Scripts(统一执行权限)
+        run: |
+          find ./ -maxdepth 3 -type f -iregex ".*(txt|sh)$" -exec dos2unix {} \; -exec chmod +x {} \;
+
+      - name: Prepare authenticated GitHub clone(配置认证克隆)
         run: |
           git config --global url."https://${GITHUB_ACTOR}:${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
           git config --global http.lowSpeedLimit 1
@@ -147,20 +138,19 @@ jobs:
           cd ./wrt/
           ./scripts/feeds update -a
           ./scripts/feeds install -a
-          # 立刻撤销 token 化 URL，避免 LLVM/Rust CMake 报“embedded password”
-          git config --global --unset-all url."https://${GITHUB_ACTOR}:${GITHUB_TOKEN}@github.com/".insteadOf || true
 
       - name: Custom Packages(自定义软件包)
         run: |
           cd ./wrt/
           if [[ "${WRT_CONFIG,,}" == *"small"* || "${WRT_CONFIG,,}" == *"samll"* ]]; then
             echo ">> Detected SMALL config, using Packages_small.sh"
-            bash "$GITHUB_WORKSPACE/Scripts/Packages_small.sh"
+            bash $GITHUB_WORKSPACE/Scripts/Packages_small.sh
           else
             echo ">> Using standard Packages.sh"
-            bash "$GITHUB_WORKSPACE/Scripts/Packages.sh"
+            bash $GITHUB_WORKSPACE/Scripts/Packages.sh
           fi
-          cd ./package/ && bash "$GITHUB_WORKSPACE/Scripts/Handles.sh"
+          cd ./package/
+          bash $GITHUB_WORKSPACE/Scripts/Handles.sh
 
       - name: Custom Settings(自定义设置)
         run: |
@@ -170,8 +160,6 @@ jobs:
           else
             cat "$GITHUB_WORKSPACE/Config/$WRT_CONFIG.txt" "$GITHUB_WORKSPACE/Config/GENERAL.txt" >> .config
           fi
-          chmod +x "$GITHUB_WORKSPACE/Scripts/Settings.sh" || true
-          dos2unix "$GITHUB_WORKSPACE/Scripts/Settings.sh" || true
           "$GITHUB_WORKSPACE/Scripts/Settings.sh"
           make defconfig -j"$(nproc)" && make clean -j"$(nproc)"
 
@@ -190,84 +178,71 @@ jobs:
           fi
 
       - name: Package Firmware(打包固件)
-        shell: bash
         run: |
-          set -e
-          cd ./wrt/
-          mkdir -p ./upload/
-          cp -f ./.config "./upload/Config-${WRT_CONFIG}-${WRT_INFO}-${WRT_BRANCH}-${WRT_DATE}.txt" || true
+          set +e
+          cd ./wrt/ && mkdir -p ./upload/
 
-          # 兜底推断 WRT_TARGET（为空时）
-          if [ -z "${WRT_TARGET}" ] || [ "${WRT_TARGET}" = " " ]; then
-            GUESS="$(find ./bin/targets -mindepth 2 -maxdepth 2 -type d -printf "%P\n" 2>/dev/null | head -n1 | cut -d'/' -f1)"
-            [ -n "$GUESS" ] && echo "WRT_TARGET=$GUESS" >> "$GITHUB_ENV"
+          # 尝试复制 .config（不存在则忽略）
+          cp -f ./.config "./upload/Config-${WRT_CONFIG}-${WRT_INFO}-${WRT_BRANCH}-${WRT_DATE}.txt" 2>/dev/null || true
+
+          # 如果 WRT_TARGET 为空，尝试从 bin 目录或 .config 推断
+          if [ -z "${WRT_TARGET}" ]; then
+            if [ -d "./bin/targets" ]; then
+              topdir="$(find ./bin/targets -mindepth 1 -maxdepth 1 -type d -printf "%f\n" | head -n1)"
+              subdir="$( [ -n "$topdir" ] && find "./bin/targets/$topdir" -mindepth 1 -maxdepth 1 -type d -printf "%f\n" | head -n1 )"
+              [ -n "$subdir" ] && WRT_TARGET="$subdir" || WRT_TARGET="$topdir"
+            fi
+            if [ -z "${WRT_TARGET}" ] && [ -f .config ]; then
+              WRT_TARGET="$(grep -m1 -oE '^CONFIG_TARGET_[^=]+' .config | sed 's/^CONFIG_TARGET_//' | head -n1)"
+            fi
+            echo "WRT_TARGET=${WRT_TARGET}" >> $GITHUB_ENV
           fi
 
-          if [[ "${WRT_TEST}" != "true" ]]; then
-            # 提取环境信息（避免在 echo 中嵌套管道）
-            KVER="$(grep -h -oP '^kernel - \K[\d\.]+' ./bin/targets/*/*/*.manifest 2>/dev/null | head -n1)"
-            LIST="$(grep -h -oP '^luci-(app|theme)[^ ]*' ./bin/targets/*/*/*.manifest 2>/dev/null | tr '\n' ' ')"
-            NSS="$(grep -oP '^CONFIG_NSS_FIRMWARE_VERSION_\K[\d_]+' .config 2>/dev/null | sed 's/_/./g' | head -n1)"
-            {
-              [ -n "$KVER" ] && echo "WRT_KVER=$KVER"
-              [ -n "$LIST" ] && echo "WRT_LIST=$LIST"
-              [ -n "$NSS" ] && echo "NSS_FIRMWARE_VERSION=$NSS"
-            } >> "$GITHUB_ENV"
+          # 读取 kernel 版本（不使用 grep -P，避免 \K 转义）
+          if ls ./bin/targets/*/*/*.manifest >/dev/null 2>&1; then
+            KVER="$(awk '/^kernel - /{print $3; exit}' ./bin/targets/*/*/*.manifest)"
+            [ -n "$KVER" ] && echo "WRT_KVER=${KVER}" >> $GITHUB_ENV
+            # 收集 luci app/theme 列表
+            LUCI_LIST="$(awk '/^luci-(app|theme)/{printf "%s ", $1}' ./bin/targets/*/*/*.manifest)"
+            [ -n "$LUCI_LIST" ] && echo "WRT_LIST=${LUCI_LIST}" >> $GITHUB_ENV
+          fi
 
-            # 清理多余文件
-            find ./bin/targets/ -iregex '.*\(buildinfo\|json\|sha256sums\|packages\)$' -exec rm -rf {} + || true
+          # NSS 固件版本（无需 PCRE）
+          if [ -f .config ]; then
+            NSS_VER="$(grep -E '^CONFIG_NSS_FIRMWARE_VERSION_' .config | head -n1 | sed -E 's/^CONFIG_NSS_FIRMWARE_VERSION_([0-9_]+)=y/\1/' | tr '_' '.')"
+            [ -n "$NSS_VER" ] && echo "NSS_FIRMWARE_VERSION=${NSS_VER}" >> $GITHUB_ENV
+          fi
 
-            # 统一重命名并移动到 upload
-            TARGET_GLOB="*${WRT_TARGET:-}*"
+          # 清理不需要的文件
+          find ./bin/targets/ -iregex '.*\(buildinfo\|json\|sha256sums\|packages\)$' -exec rm -rf {} + 2>/dev/null || true
+
+          # 重命名/移动产物
+          if [ -n "${WRT_TARGET}" ]; then
             while IFS= read -r -d '' FILE; do
-              BASENAME="$(basename "$FILE")"
-              EXT="${BASENAME#*.}"
-              NAME="${BASENAME%%.*}"
-              if [ -n "${WRT_TARGET}" ] && echo "$NAME" | grep -qiE "(${WRT_TARGET})"; then
-                NAME="$(echo "$NAME" | grep -ioE "(${WRT_TARGET}).*")"
+              base="$(basename "$FILE")"
+              ext="${base#*.}"
+              name="${base%%.*}"
+              if echo "$name" | grep -qi "^${WRT_TARGET}"; then
+                pick="$name"
+              else
+                pick="$name"
               fi
-              NEW_FILE="${WRT_INFO}-${WRT_BRANCH}-${NAME}-${WRT_DATE}.${EXT}"
-              mv -f "$FILE" "./upload/$NEW_FILE" || true
-            done < <(find ./bin/targets/ -type f -iname "$TARGET_GLOB" -print0 2>/dev/null)
-
-            # 兜底把剩余文件也搬过去，保证发布不空
-            find ./bin/targets/ -type f -print0 2>/dev/null | xargs -0 -I{} mv -f "{}" ./upload/ || true
-
-            export LDFLAGS="-fuse-ld=lld"
-            make clean -j"$(nproc)" || true
+              mv -f "$FILE" "./upload/${WRT_INFO}-${WRT_BRANCH}-${pick}-${WRT_DATE}.${ext}" || true
+            done < <(find ./bin/targets/ -type f -iname "*${WRT_TARGET}*" -print0)
           fi
+
+          # 兜底：把剩余的目标文件挪到 upload
+          find ./bin/targets/ -type f -exec mv -f {} ./upload/ \; 2>/dev/null || true
+
+          export LDFLAGS="-fuse-ld=lld"
+          make clean -j"$(nproc)" || true
 
       - name: Release Firmware(发布固件)
         uses: softprops/action-gh-release@master
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
           tag_name: ${{ env.WRT_CONFIG }}-${{ env.WRT_INFO }}-${{ env.WRT_BRANCH }}-${{ env.WRT_DATE }}
           files: ./wrt/upload/*.*
-          overwrite: true
-          draft: false
-          prerelease: false
-          make_latest: true
           body: |
             这是个平台固件包，内含多个设备！
             请注意选择你需要的设备固件！
             不要问，刷就完事了！
-
-            全系带开源硬件加速，别问了！
-
-            源码：${{ env.WRT_REPO }}
-            分支：${{ env.WRT_BRANCH }}
-            提交：${{ env.WRT_HASH }}
-
-            配置：${{ env.WRT_CONFIG }}
-            平台：${{ env.WRT_TARGET }}
-
-            登录地址：${{ env.WRT_IP }}
-            登录密码：${{ env.WRT_PW }}
-
-            WIFI名称：${{ env.WRT_SSID }}
-            WIFI密码：${{ env.WRT_WORD }}
-
-            NSS版本：${{ env.NSS_FIRMWARE_VERSION }}
-
-            内核版本：${{ env.WRT_KVER }}
-            插件列表：${{ env.WRT_LIST }}
