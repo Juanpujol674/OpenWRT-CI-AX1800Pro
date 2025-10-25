@@ -134,7 +134,7 @@ CONFIG_PACKAGE_containers-storage=y
 CONFIG_PACKAGE_podman-compose=y
 
 # ============================================================
-# 内核支持项（容器/隔离）
+# Podman内核支持项（容器/隔离）
 # ============================================================
 CONFIG_KERNEL_CGROUPS=y
 CONFIG_KERNEL_CGROUP_PIDS=y
@@ -145,6 +145,15 @@ CONFIG_KERNEL_SECCOMP=y
 CONFIG_KERNEL_SECCOMP_FILTER=y
 CONFIG_KERNEL_KEYS=y
 
+# Podman镜像与配置
+CONFIG_PACKAGE_skopeo=y
+CONFIG_PACKAGE_containers-common=y
+# Podman Rootless/Overlay 更优
+CONFIG_PACKAGE_fuse-overlayfs=y
+
+# Podman 网络内核
+CONFIG_PACKAGE_kmod-veth=y
+CONFIG_PACKAGE_kmod-macvlan=y
 # ============================================================
 # NSS/QCA 固件控制
 # ============================================================
