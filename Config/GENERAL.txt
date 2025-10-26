@@ -5,7 +5,7 @@ CONFIG_PACKAGE_luci-app-homeproxy=y
 CONFIG_PACKAGE_luci-app-momo=y
 CONFIG_PACKAGE_luci-app-nikki=y
 CONFIG_PACKAGE_sing-box=y
-
+CONFIG_PACKAGE_luci-app-openlist2=y
 # ============================================================
 # 常用 LuCI 插件
 # ============================================================
