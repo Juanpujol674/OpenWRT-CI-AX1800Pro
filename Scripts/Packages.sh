@@ -1,13 +1,11 @@
 #!/usr/bin/env bash
-# Hardened Packages.sh — tolerate missing third‑party packages (e.g. luci-app-nginx removed upstream)
+# Hardened Packages.sh — tolerate missing third-party packages (e.g. luci-app-nginx removed upstream)
 # This script is meant to run from the OpenWrt source root (./wrt/) where `package/` exists.
 set -e
 
 echo ">> Using hardened Packages.sh (safe sparse clone + conditional moves)"
 
 PKGDIR="package"
-
-# Ensure package dir exists
 mkdir -p "${PKGDIR}"
 
 # --- Helper: safe sparse clone for selected paths ---
@@ -22,16 +20,13 @@ safe_sparse_clone() {
   git clone --depth=1 --filter=blob:none --sparse -b "${branch}" "${repo}" "${tmpdir}"
   pushd "${tmpdir}" >/dev/null
 
-  # Set the sparse paths if any; otherwise just skip
   if [ "${#paths[@]}" -gt 0 ]; then
     git sparse-checkout set --no-cone "${paths[@]}" || true
   fi
 
-  # Move existing items only
   for p in "${paths[@]}"; do
     if [ -d "${p}" ] || [ -f "${p}" ]; then
       echo "   + bringing ${p}"
-      # prefer move; if cross-device, fallback to copy
       mv -f "${p}" "../${PKGDIR}/" 2>/dev/null || cp -a "${p}" "../${PKGDIR}/"
     else
       echo "   ! WARN: path '${p}' not found in ${repo}, skipping"
@@ -50,35 +45,36 @@ safe_clone_into_package() {
     name="$(basename "${repo%%.git}")"
   fi
   echo ">> Cloning ${repo} -> ${PKGDIR}/${name}"
-  # If exists, remove and reclone to keep fresh
   rm -rf "${PKGDIR}/${name}"
   git clone --depth 1 --single-branch "${repo}" "${PKGDIR}/${name}"
 }
 
-# --- Your third-party sources ---
+# =============== Third-party sources ===============
 
-# kenzok8/small-package (some paths may disappear upstream; we guard them)
+# kenzok8/small-package（注意：个别目录可能上游删掉，已做容错）
 safe_sparse_clone main https://github.com/kenzok8/small-package \
   daed-next luci-app-daed-next \
   gost luci-app-gost \
   luci-app-nginx \
-  luci-app-adguardhome
+  luci-app-adguardhome \
+  luci-app-nikki \
+  luci-app-momo
 
-# If luci-app-nginx was not present in sparse list, try to fetch it from full repo as fallback (optional)
+# luci-app-nginx 若已被上游移除，这里只提示，不中断
 if [ ! -d "${PKGDIR}/luci-app-nginx" ]; then
-  echo ">> luci-app-nginx not found via sparse checkout; skipping (package may be deprecated upstream)"
+  echo ">> luci-app-nginx not found via sparse checkout; possibly removed upstream, skipping."
 fi
 
-# kiddin9/kwrt-packages (selected)
+# kiddin9/kwrt-packages（按需抓取）
 safe_sparse_clone main https://github.com/kiddin9/kwrt-packages \
   natter2 luci-app-natter2 \
   luci-app-cloudflarespeedtest \
   luci-app-caddy openwrt-caddy
 
-# Podman (breeze303)
+# Podman（breeze303）
 safe_clone_into_package https://github.com/breeze303/openwrt-podman podman
 
-# Optional: Lucky (UI + core) – only clone if not already in feeds
+# Lucky（UI + core），仅当 feeds 没有对应目录时再 vendor
 if [ ! -d "${PKGDIR}/lucky" ]; then
   safe_clone_into_package https://github.com/sirpdboy/lucky lucky || true
 fi
@@ -86,8 +82,7 @@ if [ ! -d "${PKGDIR}/luci-app-lucky" ]; then
   safe_clone_into_package https://github.com/sirpdboy/luci-app-lucky luci-app-lucky || true
 fi
 
-# Optional: HomeProxy / sing-box (use your preferred source; here we rely on feeds by default)
-# If you want to vendor them, uncomment the following lines with your known-good repos:
+# HomeProxy / sing-box 如需 vendor 可在此打开（否则走 feeds）
 # safe_clone_into_package https://github.com/immortalwrt/homeproxy luci-app-homeproxy
 # safe_clone_into_package https://github.com/sbwml/openwrt_sing-box sing-box
 
