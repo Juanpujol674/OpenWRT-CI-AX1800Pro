@@ -87,3 +87,8 @@ fi
 # safe_clone_into_package https://github.com/sbwml/openwrt_sing-box sing-box
 
 echo ">> Third-party packages fetched successfully."
+# === 非 SMALL 机型：显式开启 luci-app-momo / luci-app-nikki ===
+if [[ "${WRT_CONFIG,,}" != *"small"* && "${WRT_CONFIG,,}" != *"samll"* ]]; then
+  echo "CONFIG_PACKAGE_luci-app-momo=y"  >> ./.config
+  echo "CONFIG_PACKAGE_luci-app-nikki=y" >> ./.config
+fi
