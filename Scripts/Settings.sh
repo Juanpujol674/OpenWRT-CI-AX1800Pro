@@ -92,3 +92,38 @@ if [[ "${WRT_CONFIG,,}" != *"small"* && "${WRT_CONFIG,,}" != *"samll"* ]]; then
   echo "CONFIG_PACKAGE_luci-app-momo=y"  >> ./.config
   echo "CONFIG_PACKAGE_luci-app-nikki=y" >> ./.config
 fi
+
+# === 非 SMALL 机型：常见 USB/RNDIS/CDC & 常见网卡/蜂窝支持 ===
+if [[ "${WRT_CONFIG,,}" != *"small"* && "${WRT_CONFIG,,}" != *"samll"* ]]; then
+  cat >> ./.config <<'EOF_USB_NET_BIG'
+# 基础 USB 栈 & Host 控制器（通用/兜底）
+CONFIG_PACKAGE_kmod-usb-core=y
+CONFIG_PACKAGE_kmod-usb2=y
+CONFIG_PACKAGE_kmod-usb3=y
+CONFIG_PACKAGE_kmod-usb-ehci=y
+CONFIG_PACKAGE_kmod-usb-ohci=y
+#（若你的机型已自带可自动裁掉，不影响编译）
+
+# 常见 USB 以太网/RNDIS/CDC
+CONFIG_PACKAGE_kmod-usb-net=y
+CONFIG_PACKAGE_kmod-usb-net-rndis=y
+CONFIG_PACKAGE_kmod-usb-net-cdc-ether=y
+CONFIG_PACKAGE_kmod-usb-net-cdc-ncm=y
+CONFIG_PACKAGE_kmod-usb-net-cdc-mbim=y
+
+# 常见 USB 千兆网卡芯片
+CONFIG_PACKAGE_kmod-usb-net-asix=y
+CONFIG_PACKAGE_kmod-usb-net-ax88179_178a=y
+CONFIG_PACKAGE_kmod-usb-net-rtl8152=y
+
+# 手机/数据卡模式切换 & 工具
+CONFIG_PACKAGE_usbutils=y
+CONFIG_PACKAGE_usb-modeswitch=y
+CONFIG_PACKAGE_usb-modeswitch-data=y
+
+# （可选）蜂窝/QMI/MBIM 用户态工具（很多随身网卡/手机共享不需要，但数据卡常用）
+# CONFIG_PACKAGE_umbim=y
+# CONFIG_PACKAGE_uqmi=y
+# CONFIG_PACKAGE_kmod-usb-net-qmi-wwan=y
+EOF_USB_NET_BIG
+fi
