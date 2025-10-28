@@ -105,7 +105,8 @@ jobs:
         shell: bash
         run: |
           set -e
-          find . -maxdepth 3 -type f \( -iname "*.txt" -o -iname "*.sh" \)             -exec sh -c 'for f; do dos2unix "$f" || true; chmod +x "$f" || true; done' sh {} +
+          find . -maxdepth 3 -type f \( -iname "*.txt" -o -iname "*.sh" \) \
+            -exec sh -c 'for f; do dos2unix "$f" || true; chmod +x "$f" || true; done' sh {} +
           chmod +x "$GITHUB_WORKSPACE/Scripts/"*.sh || true
 
       - name: Initialization Values(初始化变量)
@@ -144,6 +145,7 @@ jobs:
           cd ./wrt/
           ./scripts/feeds update -a
           ./scripts/feeds install -a
+          # 撤销 token 化 URL，避免 LLVM/Rust CMake 检测到 embedded password
           git config --global --unset-all url."https://${GITHUB_ACTOR}:${GITHUB_TOKEN}@github.com/".insteadOf || true
 
       - name: Custom Packages(自定义软件包)
@@ -181,7 +183,7 @@ jobs:
           if [ -n "${WRT_PACKAGE}" ]; then
             printf "%s\n" "${WRT_PACKAGE}" >> .config
           fi
-          echo "WRT_TARGET=$(grep -m1 -oP '^CONFIG_TARGET_\K[\w]+' .config | head -n1 || true)" >> $GITHUB_ENV
+          echo "WRT_TARGET=$(grep -m1 -oP '^CONFIG_TARGET_\\K[\\w]+' .config | head -n1 || true)" >> $GITHUB_ENV
           make defconfig -j"$(nproc)"
           make clean -j"$(nproc)"
 
@@ -189,16 +191,28 @@ jobs:
         if: env.WRT_TEST != 'true'
         run: cd ./wrt/ && make download -j"$(nproc)"
 
-      - name: Compile Firmware(编译固件)
+      - name: Compile Firmware(编译固件 + 日志)
         if: env.WRT_TEST != 'true'
         shell: bash
         run: |
-          set +e
+          set -o pipefail
           cd ./wrt/
+          LOG="$GITHUB_WORKSPACE/build.log"
+          echo ">> Build log: $LOG"
           if [[ "${WRT_CONFIG,,}" == *"small"* || "${WRT_CONFIG,,}" == *"samll"* ]]; then
-            make -j"$(nproc)" || make -j"$(nproc)" V=s
+            # SMALL：一次性 V=s，便于日志收集
+            make -j"$(nproc)" V=s 2>&1 | tee "$LOG"
+            exit ${PIPESTATUS[0]}
           else
-            make -j"$(nproc)" || { echo "==== parallel build failed; retry serial with verbose ===="; make -j1 V=s; }
+            # 非 SMALL：先并行，再串行V=s重试；两次输出都写入同一日志
+            make -j"$(nproc)" 2>&1 | tee "$LOG"
+            rc=${PIPESTATUS[0]}
+            if [ $rc -ne 0 ]; then
+              echo "==== parallel build failed; retry serial with verbose ====" | tee -a "$LOG"
+              make -j1 V=s 2>&1 | tee -a "$LOG"
+              rc=${PIPESTATUS[0]}
+            fi
+            exit $rc
           fi
 
       - name: Package Firmware(打包固件)
@@ -215,9 +229,9 @@ jobs:
             fi
           fi
           if [[ "${WRT_TEST}" != "true" ]]; then
-            KVER="$(grep -h -oP '^kernel - \K[\d\.]+' ./bin/targets/*/*/*.manifest 2>/dev/null | head -n1)"
+            KVER="$(grep -h -oP '^kernel - \\K[\\d\\.]+' ./bin/targets/*/*/*.manifest 2>/dev/null | head -n1)"
             LIST="$(grep -h -oP '^luci-(app|theme)[^ ]*' ./bin/targets/*/*/*.manifest 2>/dev/null | tr '\n' ' ')"
-            NSS="$(grep -oP '^CONFIG_NSS_FIRMWARE_VERSION_\K[\d_]+' .config 2>/dev/null | sed 's/_/./g' | head -n1)"
+            NSS="$(grep -oP '^CONFIG_NSS_FIRMWARE_VERSION_\\K[\\d_]+' .config 2>/dev/null | sed 's/_/./g' | head -n1)"
             {
               [ -n "$KVER" ] && echo "WRT_KVER=$KVER"
               [ -n "$LIST" ] && echo "WRT_LIST=$LIST"
@@ -239,6 +253,52 @@ jobs:
             export LDFLAGS="-fuse-ld=lld"
             make clean -j"$(nproc)" || true
           fi
+
+      # ---------- 失败后诊断（仅失败时运行） ----------
+      - name: Post Failure Diagnostics(失败后诊断)
+        if: failure()
+        shell: bash
+        run: |
+          echo "## 构建失败诊断" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f "$GITHUB_WORKSPACE/build.log" ]; then
+            echo "### build.log 末尾400行" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            tail -n 400 "$GITHUB_WORKSPACE/build.log" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "### 关键字匹配（error/failed）末尾120行" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            grep -iE "error|failed" "$GITHUB_WORKSPACE/build.log" | tail -n 120 >> "$GITHUB_STEP_SUMMARY" || true
+          else
+            echo "_未找到 build.log_" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "### 磁盘占用 & 临近日志" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          df -hT >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "\`\`\`" >> "$GITHUB_STEP_SUMMARY"
+          find "$OPENWRT_PATH" -type f -name '*.log' | tail -n 60 >> "$GITHUB_STEP_SUMMARY" || true
+          echo "\`\`\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f "./wrt/scripts/diffconfig.sh" ]; then
+            echo "### diffconfig（精简配置差异）" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            (cd ./wrt && ./scripts/diffconfig.sh) >> "$GITHUB_STEP_SUMMARY" || true
+          fi
+
+      - name: Upload Logs Artifact(上传失败日志)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: |
+            ${{ github.workspace }}/build.log
+            ${{ env.OPENWRT_PATH }}/build_wrt/build_dir/**/**/*.log
+            ${{ env.OPENWRT_PATH }}/wrt/build_dir/**/**/*.log
+            ${{ env.OPENWRT_PATH }}/wrt/logs/**/*.txt
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Release Firmware(发布固件)
         uses: softprops/action-gh-release@v2
