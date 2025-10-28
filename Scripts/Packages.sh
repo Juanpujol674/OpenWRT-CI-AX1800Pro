@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Hardened Packages.sh — tolerate missing third-party packages (e.g. luci-app-nginx removed upstream)
-# This script is meant to run from the OpenWrt source root (./wrt/) where `package/` exists.
+# Hardened Packages.sh — tolerate missing third-party packages
+# Run from OpenWrt source root (./wrt/). Will place packages under ./package/
 set -e
 
 echo ">> Using hardened Packages.sh (safe sparse clone + conditional moves)"
@@ -8,7 +8,7 @@ echo ">> Using hardened Packages.sh (safe sparse clone + conditional moves)"
 PKGDIR="package"
 mkdir -p "${PKGDIR}"
 
-# --- Helper: safe sparse clone for selected paths ---
+# ---------- helpers ----------
 safe_sparse_clone() {
   local branch="$1"; shift
   local repo="$1"; shift
@@ -37,7 +37,6 @@ safe_sparse_clone() {
   rm -rf "${tmpdir}"
 }
 
-# --- Helper: safe full clone of a single package into package/<name> ---
 safe_clone_into_package() {
   local repo="$1"
   local name="$2"
@@ -49,32 +48,36 @@ safe_clone_into_package() {
   git clone --depth 1 --single-branch "${repo}" "${PKGDIR}/${name}"
 }
 
-# =============== Third-party sources ===============
+# ---------- third-party sources ----------
 
-# kenzok8/small-package（注意：个别目录可能上游删掉，已做容错）
+# kenzok8/small-package（常见扩展）
 safe_sparse_clone main https://github.com/kenzok8/small-package \
   daed-next luci-app-daed-next \
   gost luci-app-gost \
   luci-app-nginx \
-  luci-app-adguardhome \
-  luci-app-nikki \
-  luci-app-momo
+  luci-app-adguardhome
 
-# luci-app-nginx 若已被上游移除，这里只提示，不中断
 if [ ! -d "${PKGDIR}/luci-app-nginx" ]; then
-  echo ">> luci-app-nginx not found via sparse checkout; possibly removed upstream, skipping."
+  echo ">> luci-app-nginx not found via sparse checkout; skipping (may be deprecated upstream)"
 fi
 
-# kiddin9/kwrt-packages（按需抓取）
+# kiddin9/kwrt-packages（加入 momo/nikki）
 safe_sparse_clone main https://github.com/kiddin9/kwrt-packages \
   natter2 luci-app-natter2 \
   luci-app-cloudflarespeedtest \
-  luci-app-caddy openwrt-caddy
+  luci-app-caddy openwrt-caddy \
+  luci-app-momo luci-app-nikki momo nikki
+
+# 兜底：如 kwrt-packages 没有 momo/nikki，再尝试 small-package
+if [ ! -d "${PKGDIR}/luci-app-momo" ] || [ ! -d "${PKGDIR}/luci-app-nikki" ]; then
+  safe_sparse_clone main https://github.com/kenzok8/small-package \
+    luci-app-momo luci-app-nikki momo nikki
+fi
 
 # Podman（breeze303）
-safe_clone_into_package https://github.com/breeze303/openwrt-podman podman
+safe_clone_into_package https://github.com/breeze303/openwrt-podman podman || true
 
-# Lucky（UI + core），仅当 feeds 没有对应目录时再 vendor
+# Lucky（若 feeds 没有则 vendor）
 if [ ! -d "${PKGDIR}/lucky" ]; then
   safe_clone_into_package https://github.com/sirpdboy/lucky lucky || true
 fi
@@ -82,7 +85,7 @@ if [ ! -d "${PKGDIR}/luci-app-lucky" ]; then
   safe_clone_into_package https://github.com/sirpdboy/luci-app-lucky luci-app-lucky || true
 fi
 
-# HomeProxy / sing-box 如需 vendor 可在此打开（否则走 feeds）
+# HomeProxy / sing-box（通常走 feeds；如需固定来源可在此 vendor）
 # safe_clone_into_package https://github.com/immortalwrt/homeproxy luci-app-homeproxy
 # safe_clone_into_package https://github.com/sbwml/openwrt_sing-box sing-box
 
