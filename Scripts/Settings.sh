@@ -1,26 +1,34 @@
 #!/usr/bin/env bash
 set -e
 
-# 基础系统项
+# =========================
+# Base system tweaks
+# =========================
 CFG_FILE="./package/base-files/files/bin/config_generate"
 sed -i "s/192\.168\.[0-9]*\.[0-9]*/$WRT_IP/g" "$CFG_FILE"
 sed -i "s/hostname='.*'/hostname='$WRT_NAME'/g" "$CFG_FILE"
 
-# ---------- 基础 LuCI ----------
+# =========================
+# LuCI basics
+# =========================
 {
   echo "CONFIG_PACKAGE_luci=y"
   echo "CONFIG_LUCI_LANG_zh_Hans=y"
   echo "CONFIG_PACKAGE_luci-theme-$WRT_THEME=y"
   echo "CONFIG_PACKAGE_luci-app-$WRT_THEME-config=y"
   echo "CONFIG_PACKAGE_luci-theme-bootstrap=y"
+  # 第三方 LuCI 常用的兼容层
+  echo "CONFIG_PACKAGE_luci-compat=y"
 } >> ./.config
 
-# 手动附加
+# 手动附加（来自 workflow inputs.WRT_PACKAGE）
 if [ -n "$WRT_PACKAGE" ]; then
   echo -e "$WRT_PACKAGE" >> ./.config
 fi
 
-# ---------- 高通/NSS ----------
+# =========================
+# Qualcomm / NSS
+# =========================
 DTS_PATH="./target/linux/qualcommax/files/arch/arm64/boot/dts/qcom/"
 if [[ "${WRT_TARGET^^}" == *"QUALCOMMAX"* ]]; then
   echo "CONFIG_FEED_nss_packages=n" >> ./.config
@@ -39,20 +47,25 @@ if [[ "${WRT_TARGET^^}" == *"QUALCOMMAX"* ]]; then
   fi
 fi
 
-# ---------- dropbear 修正 ----------
+# dropbear 配置项改名兼容
 sed -i "s/Interface/DirectInterface/" ./package/network/services/dropbear/files/dropbear.config || true
 
-# ---------- 不建议拉入的包（保持精简/稳态） ----------
+# =========================
+# 明确不要的包（保持稳态）
+# =========================
 cat >> ./.config <<'EOF_BLOCK_BAD'
 CONFIG_PACKAGE_luci-app-advancedplus=n
 CONFIG_PACKAGE_luci-theme-kucat=n
+# feeds 可能带入的代理相关（容易引错）
 CONFIG_PACKAGE_dae=n
 CONFIG_PACKAGE_daed=n
 CONFIG_PACKAGE_luci-app-v2raya=n
 CONFIG_PACKAGE_v2raya=n
 EOF_BLOCK_BAD
 
-# ---------- 常用工具/应用（非 SMALL 默认启用） ----------
+# =========================
+# 常用工具（非 SMALL 默认启用）
+# =========================
 cat >> ./.config <<'EOF_TOOLS'
 CONFIG_CGROUPS=y
 CONFIG_CPUSETS=y
@@ -80,16 +93,21 @@ CONFIG_PACKAGE_bind-dig=y
 CONFIG_PACKAGE_ss=y
 CONFIG_PACKAGE_luci-app-turboacc=y
 CONFIG_PACKAGE_luci-app-package-manager=y
-# Tailscale（大内存默认启用）
+# Tailscale（两种版本都集成；这里先给默认，大/小内存下方分别补）
 CONFIG_PACKAGE_luci-app-tailscale=y
 CONFIG_PACKAGE_tailscale=y
+# TUN 驱动（tailscale 需要）
+CONFIG_PACKAGE_kmod-tun=y
 EOF_TOOLS
 
-# ---------- SMALL 体积保护 + 白名单 ----------
+# =========================
+# SMALL 体积保护 + 白名单
+# =========================
 case "${WRT_CONFIG,,}" in
   *small*|*samll*)
     echo ">> SMALL profile detected, applying minimal/safe package set"
 
+    # SMALL 保留/调整
     cat >> ./.config << 'EOF_SM_MIN'
 CONFIG_PACKAGE_luci-app-homeproxy=n
 CONFIG_PACKAGE_luci-app-momo=y
@@ -106,11 +124,12 @@ CONFIG_PACKAGE_luci-app-upnp=y
 CONFIG_PACKAGE_luci-app-wolplus=y
 CONFIG_PACKAGE_luci-app-adguardhome=y
 CONFIG_PACKAGE_adguardhome=y
-# SMALL 也启用 tailscale（你要求两种版本都集成）
+# SMALL 也启用 tailscale（按你的要求）
 CONFIG_PACKAGE_luci-app-tailscale=y
 CONFIG_PACKAGE_tailscale=y
 EOF_SM_WHITE
 
+    # 为 SMALL 显式关闭一些重依赖
     cat >> ./.config << 'EOF_SM_BLOCK'
 CONFIG_PACKAGE_luci-app-openclash=n
 CONFIG_PACKAGE_openclash=n
@@ -134,7 +153,7 @@ CONFIG_PACKAGE_coreutils=n
 CONFIG_PACKAGE_coreutils-base64=n
 EOF_SM_BLOCK
 
-    # 若 feeds 中没有 sing-box，则关闭，避免失败
+    # 无 sing-box 源时，避免失败
     if ! find feeds -maxdepth 3 -type f -path "*/sing-box/Makefile" | grep -q . && [ ! -d package/sing-box ]; then
       echo "CONFIG_PACKAGE_sing-box=n" >> ./.config
       echo ">> WARNING: sing-box package not found, disabled to avoid build failure."
@@ -142,7 +161,9 @@ EOF_SM_BLOCK
   ;;
 esac
 
-# ---------- 大闪存机型：避免 SQM 控制文件冲突 ----------
+# =========================
+# 大闪存：避免 SQM CONTROL 冲突
+# =========================
 case "${WRT_CONFIG,,}" in
   *wifi-yes*|*wifi-no*)
     echo ">> Disable sqm-scripts-nss to prevent CONTROL conflict"
@@ -151,7 +172,9 @@ case "${WRT_CONFIG,,}" in
     ;;
 esac
 
-# ---------- Podman 运行最优配置（非 SMALL） ----------
+# =========================
+# Podman 运行栈（非 SMALL）
+# =========================
 case "${WRT_CONFIG,,}" in
   *small*|*samll*)
     echo ">> SMALL build: skip heavy Podman stack auto-enable"
@@ -193,7 +216,9 @@ EOF_SYSCTL
     ;;
 esac
 
-# ---------- 大内存：RNDIS/CDC 随身网卡支持 ----------
+# =========================
+# 大内存：RNDIS/CDC 随身网卡支持
+# =========================
 if [[ "${WRT_CONFIG,,}" != *"small"* && "${WRT_CONFIG,,}" != *"samll"* ]]; then
   cat >> ./.config <<'EOF_USB_NET_BIG'
 CONFIG_PACKAGE_kmod-usb-net=y
@@ -206,27 +231,32 @@ CONFIG_PACKAGE_usb-modeswitch=y
 EOF_USB_NET_BIG
 fi
 
-# ---------- 非 SMALL：显式开启 momo / nikki ----------
+# =========================
+# 非 SMALL：显式开启 momo / nikki
+# =========================
 if [[ "${WRT_CONFIG,,}" != *"small"* && "${WRT_CONFIG,,}" != *"samll"* ]]; then
   echo "CONFIG_PACKAGE_luci-app-momo=y"  >> ./.config
   echo "CONFIG_PACKAGE_luci-app-nikki=y" >> ./.config
 fi
 
-# ---------- 存在性检查：若源码缺失则自动关闭，避免失败 ----------
+# =========================
+# 兜底存在性检查（源里没有则禁用避免红叉）
+# =========================
 check_or_disable() {
-  local pkg="$1"      # luci-app-*
-  local path_glob="$2" # like */luci-app-xxx/Makefile
-  if ! find package feeds -maxdepth 3 -type f -path "${path_glob}" | grep -q .; then
+  local pkg="$1"       # e.g. luci-app-momo
+  local path_glob="$2" # e.g. */luci-app-momo/Makefile
+  if ! find package feeds -maxdepth 4 -type f -path "${path_glob}" | grep -q .; then
     echo "CONFIG_PACKAGE_${pkg}=n" >> ./.config
     echo ">> WARN: ${pkg} not found in sources, disabled to avoid build error."
   fi
 }
 
-check_or_disable "luci-app-momo"  "*/luci-app-momo/Makefile"
-check_or_disable "luci-app-nikki" "*/luci-app-nikki/Makefile"
+check_or_disable "luci-app-momo"      "*/luci-app-momo/Makefile"
+check_or_disable "luci-app-nikki"     "*/luci-app-nikki/Makefile"
 check_or_disable "luci-app-tailscale" "*/luci-app-tailscale/Makefile"
-# tailscale 核心包通常在 feeds/packages，稳妥也检查
-if ! find package feeds -maxdepth 3 -type f -path "*/tailscale/Makefile" | grep -q .; then
+
+# tailscale 核心包通常在 feeds/packages/net/tailscale
+if ! find package feeds -maxdepth 5 -type f -path "*/tailscale/Makefile" | grep -q .; then
   echo "CONFIG_PACKAGE_tailscale=n" >> ./.config
-  echo ">> WARN: tailscale core not found, disabled to avoid build error."
+  echo ">> WARN: tailscale core not found, disabled."
 fi
