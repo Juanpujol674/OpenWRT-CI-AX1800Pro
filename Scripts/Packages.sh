@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 # Hardened Packages.sh — tolerate missing third-party packages
-# Run from OpenWrt source root (./wrt/). Will place packages under ./package/
 set -e
 
 echo ">> Using hardened Packages.sh (safe sparse clone + conditional moves)"
@@ -55,38 +54,37 @@ safe_sparse_clone main https://github.com/kenzok8/small-package \
   daed-next luci-app-daed-next \
   gost luci-app-gost \
   luci-app-nginx \
-  luci-app-adguardhome
+  luci-app-adguardhome \
+  luci-app-momo luci-app-nikki momo nikki \
+  luci-app-tailscale
 
-if [ ! -d "${PKGDIR}/luci-app-nginx" ]; then
-  echo ">> luci-app-nginx not found via sparse checkout; skipping (may be deprecated upstream)"
-fi
-
-# kiddin9/kwrt-packages（加入 momo/nikki）
+# kiddin9/kwrt-packages（补充/兜底）
 safe_sparse_clone main https://github.com/kiddin9/kwrt-packages \
   natter2 luci-app-natter2 \
   luci-app-cloudflarespeedtest \
   luci-app-caddy openwrt-caddy \
-  luci-app-momo luci-app-nikki momo nikki
+  luci-app-momo luci-app-nikki momo nikki \
+  luci-app-tailscale
 
-# 兜底：如 kwrt-packages 没有 momo/nikki，再尝试 small-package
-if [ ! -d "${PKGDIR}/luci-app-momo" ] || [ ! -d "${PKGDIR}/luci-app-nikki" ]; then
-  safe_sparse_clone main https://github.com/kenzok8/small-package \
-    luci-app-momo luci-app-nikki momo nikki
-fi
-
-# Podman（breeze303）
+# Podman
 safe_clone_into_package https://github.com/breeze303/openwrt-podman podman || true
 
 # Lucky（若 feeds 没有则 vendor）
-if [ ! -d "${PKGDIR}/lucky" ]; then
-  safe_clone_into_package https://github.com/sirpdboy/lucky lucky || true
-fi
-if [ ! -d "${PKGDIR}/luci-app-lucky" ]; then
-  safe_clone_into_package https://github.com/sirpdboy/luci-app-lucky luci-app-lucky || true
-fi
+[ -d "${PKGDIR}/lucky" ] || safe_clone_into_package https://github.com/sirpdboy/lucky lucky || true
+[ -d "${PKGDIR}/luci-app-lucky" ] || safe_clone_into_package https://github.com/sirpdboy/luci-app-lucky luci-app-lucky || true
 
 # HomeProxy / sing-box（通常走 feeds；如需固定来源可在此 vendor）
 # safe_clone_into_package https://github.com/immortalwrt/homeproxy luci-app-homeproxy
 # safe_clone_into_package https://github.com/sbwml/openwrt_sing-box sing-box
+
+# ---------- presence report ----------
+echo ">> Presence report (should be 'OK'):"
+for d in luci-app-momo luci-app-nikki luci-app-tailscale; do
+  if [ -d "${PKGDIR}/${d}" ] || find feeds -maxdepth 3 -type d -name "${d}" | grep -q .; then
+    echo "   ${d}: OK"
+  else
+    echo "   ${d}: MISSING (will be disabled later to avoid errors)"
+  fi
+done
 
 echo ">> Third-party packages fetched successfully."
