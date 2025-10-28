@@ -1,129 +1,232 @@
 #!/usr/bin/env bash
-# Hardened Packages.sh — tolerate missing third-party packages (e.g. luci-app-nginx removed upstream)
-# This script is meant to run from the OpenWrt source root (./wrt/) where `package/` exists.
 set -e
 
-echo ">> Using hardened Packages.sh (safe sparse clone + conditional moves)"
+# 基础系统项
+CFG_FILE="./package/base-files/files/bin/config_generate"
+sed -i "s/192\.168\.[0-9]*\.[0-9]*/$WRT_IP/g" "$CFG_FILE"
+sed -i "s/hostname='.*'/hostname='$WRT_NAME'/g" "$CFG_FILE"
 
-PKGDIR="package"
-mkdir -p "${PKGDIR}"
+# ---------- 基础 LuCI ----------
+{
+  echo "CONFIG_PACKAGE_luci=y"
+  echo "CONFIG_LUCI_LANG_zh_Hans=y"
+  echo "CONFIG_PACKAGE_luci-theme-$WRT_THEME=y"
+  echo "CONFIG_PACKAGE_luci-app-$WRT_THEME-config=y"
+  echo "CONFIG_PACKAGE_luci-theme-bootstrap=y"
+} >> ./.config
 
-# --- Helper: safe sparse clone for selected paths ---
-safe_sparse_clone() {
-  local branch="$1"; shift
-  local repo="$1"; shift
-  local paths=("$@")
+# 手动附加
+if [ -n "$WRT_PACKAGE" ]; then
+  echo -e "$WRT_PACKAGE" >> ./.config
+fi
 
-  local tmpdir
-  tmpdir="$(mktemp -d)"
-  echo ">> Sparse cloning ${repo} (${branch}) -> ${tmpdir}"
-  git clone --depth=1 --filter=blob:none --sparse -b "${branch}" "${repo}" "${tmpdir}"
-  pushd "${tmpdir}" >/dev/null
-
-  if [ "${#paths[@]}" -gt 0 ]; then
-    git sparse-checkout set --no-cone "${paths[@]}" || true
+# ---------- 高通/NSS ----------
+DTS_PATH="./target/linux/qualcommax/files/arch/arm64/boot/dts/qcom/"
+if [[ "${WRT_TARGET^^}" == *"QUALCOMMAX"* ]]; then
+  echo "CONFIG_FEED_nss_packages=n" >> ./.config
+  echo "CONFIG_FEED_sqm_scripts_nss=n" >> ./.config
+  echo "CONFIG_PACKAGE_luci-app-sqm=y" >> ./.config
+  echo "CONFIG_PACKAGE_sqm-scripts-nss=y" >> ./.config
+  echo "CONFIG_NSS_FIRMWARE_VERSION_11_4=n" >> ./.config
+  if [[ "${WRT_CONFIG,,}" == *"ipq50"* ]]; then
+    echo "CONFIG_NSS_FIRMWARE_VERSION_12_2=y" >> ./.config
+  else
+    echo "CONFIG_NSS_FIRMWARE_VERSION_12_5=y" >> ./.config
   fi
+  if [[ "${WRT_CONFIG,,}" == *"wifi"* && "${WRT_CONFIG,,}" == *"no"* ]]; then
+    find "$DTS_PATH" -type f ! -iname '*nowifi*' -exec sed -i 's/ipq\(6018\|8074\).dtsi/ipq\1-nowifi.dtsi/g' {} +
+    echo "qualcommax set up nowifi successfully!"
+  fi
+fi
 
-  for p in "${paths[@]}"; do
-    if [ -d "${p}" ] || [ -f "${p}" ]; then
-      echo "   + bringing ${p}"
-      mv -f "${p}" "../${PKGDIR}/" 2>/dev/null || cp -a "${p}" "../${PKGDIR}/"
-    else
-      echo "   ! WARN: path '${p}' not found in ${repo}, skipping"
+# ---------- dropbear 修正 ----------
+sed -i "s/Interface/DirectInterface/" ./package/network/services/dropbear/files/dropbear.config || true
+
+# ---------- 不建议拉入的包（保持精简/稳态） ----------
+cat >> ./.config <<'EOF_BLOCK_BAD'
+CONFIG_PACKAGE_luci-app-advancedplus=n
+CONFIG_PACKAGE_luci-theme-kucat=n
+CONFIG_PACKAGE_dae=n
+CONFIG_PACKAGE_daed=n
+CONFIG_PACKAGE_luci-app-v2raya=n
+CONFIG_PACKAGE_v2raya=n
+EOF_BLOCK_BAD
+
+# ---------- 常用工具/应用（非 SMALL 默认启用） ----------
+cat >> ./.config <<'EOF_TOOLS'
+CONFIG_CGROUPS=y
+CONFIG_CPUSETS=y
+CONFIG_PACKAGE_openssh-sftp-server=y
+CONFIG_PACKAGE_jq=y
+CONFIG_PACKAGE_coreutils-base64=y
+CONFIG_PACKAGE_coreutils=y
+CONFIG_PACKAGE_btop=y
+CONFIG_PACKAGE_luci-app-openlist2=y
+CONFIG_PACKAGE_luci-app-lucky=y
+CONFIG_PACKAGE_lucky=y
+CONFIG_PACKAGE_curl=y
+CONFIG_PACKAGE_tcping=y
+CONFIG_PACKAGE_cfdisk=y
+CONFIG_PACKAGE_luci-app-podman=y
+CONFIG_PACKAGE_podman=y
+CONFIG_PACKAGE_luci-app-caddy=y
+CONFIG_PACKAGE_luci-app-filemanager=y
+CONFIG_PACKAGE_luci-app-gost=y
+CONFIG_PACKAGE_git-http=y
+CONFIG_PACKAGE_luci-app-nginx=y
+CONFIG_PACKAGE_luci-app-adguardhome=y
+CONFIG_PACKAGE_zoneinfo-asia=y
+CONFIG_PACKAGE_bind-dig=y
+CONFIG_PACKAGE_ss=y
+CONFIG_PACKAGE_luci-app-turboacc=y
+CONFIG_PACKAGE_luci-app-package-manager=y
+# Tailscale（大内存默认启用）
+CONFIG_PACKAGE_luci-app-tailscale=y
+CONFIG_PACKAGE_tailscale=y
+EOF_TOOLS
+
+# ---------- SMALL 体积保护 + 白名单 ----------
+case "${WRT_CONFIG,,}" in
+  *small*|*samll*)
+    echo ">> SMALL profile detected, applying minimal/safe package set"
+
+    cat >> ./.config << 'EOF_SM_MIN'
+CONFIG_PACKAGE_luci-app-homeproxy=n
+CONFIG_PACKAGE_luci-app-momo=y
+CONFIG_PACKAGE_luci-app-nikki=y
+CONFIG_PACKAGE_sing-box=y
+EOF_SM_MIN
+
+    cat >> ./.config << 'EOF_SM_WHITE'
+CONFIG_PACKAGE_luci-app-autoreboot=y
+CONFIG_PACKAGE_luci-app-gecoosac=y
+CONFIG_PACKAGE_luci-app-netspeedtest=y
+CONFIG_PACKAGE_luci-app-partexp=y
+CONFIG_PACKAGE_luci-app-upnp=y
+CONFIG_PACKAGE_luci-app-wolplus=y
+CONFIG_PACKAGE_luci-app-adguardhome=y
+CONFIG_PACKAGE_adguardhome=y
+# SMALL 也启用 tailscale（你要求两种版本都集成）
+CONFIG_PACKAGE_luci-app-tailscale=y
+CONFIG_PACKAGE_tailscale=y
+EOF_SM_WHITE
+
+    cat >> ./.config << 'EOF_SM_BLOCK'
+CONFIG_PACKAGE_luci-app-openclash=n
+CONFIG_PACKAGE_openclash=n
+CONFIG_PACKAGE_luci-app-lucky=n
+CONFIG_PACKAGE_lucky=n
+CONFIG_PACKAGE_luci-app-dockerman=n
+CONFIG_PACKAGE_dockerd=n
+CONFIG_PACKAGE_containerd=n
+CONFIG_PACKAGE_luci-app-podman=n
+CONFIG_PACKAGE_podman=n
+CONFIG_PACKAGE_luci-app-qbittorrent=n
+CONFIG_PACKAGE_qbittorrent=n
+CONFIG_PACKAGE_luci-app-gost=n
+CONFIG_PACKAGE_gost=n
+CONFIG_PACKAGE_luci-app-nginx=n
+CONFIG_PACKAGE_nginx-mod-luci=n
+CONFIG_PACKAGE_luci-app-filemanager=n
+CONFIG_PACKAGE_btop=n
+CONFIG_PACKAGE_bind-dig=n
+CONFIG_PACKAGE_coreutils=n
+CONFIG_PACKAGE_coreutils-base64=n
+EOF_SM_BLOCK
+
+    # 若 feeds 中没有 sing-box，则关闭，避免失败
+    if ! find feeds -maxdepth 3 -type f -path "*/sing-box/Makefile" | grep -q . && [ ! -d package/sing-box ]; then
+      echo "CONFIG_PACKAGE_sing-box=n" >> ./.config
+      echo ">> WARNING: sing-box package not found, disabled to avoid build failure."
     fi
-  done
+  ;;
+esac
 
-  popd >/dev/null
-  rm -rf "${tmpdir}"
-}
+# ---------- 大闪存机型：避免 SQM 控制文件冲突 ----------
+case "${WRT_CONFIG,,}" in
+  *wifi-yes*|*wifi-no*)
+    echo ">> Disable sqm-scripts-nss to prevent CONTROL conflict"
+    echo "CONFIG_PACKAGE_sqm-scripts-nss=n" >> ./.config
+    echo "CONFIG_PACKAGE_sqm-scripts=y" >> ./.config
+    ;;
+esac
 
-# --- Helper: safe full clone of a single package into package/<name> ---
-safe_clone_into_package() {
-  local repo="$1"
-  local name="$2"
-  if [ -z "${name}" ]; then
-    name="$(basename "${repo%%.git}")"
-  fi
-  echo ">> Cloning ${repo} -> ${PKGDIR}/${name}"
-  rm -rf "${PKGDIR}/${name}"
-  git clone --depth 1 --single-branch "${repo}" "${PKGDIR}/${name}"
-}
+# ---------- Podman 运行最优配置（非 SMALL） ----------
+case "${WRT_CONFIG,,}" in
+  *small*|*samll*)
+    echo ">> SMALL build: skip heavy Podman stack auto-enable"
+    ;;
+  *)
+    echo ">> Enable full Podman stack (packages + kernel features)"
+    cat >> ./.config << 'EOF_POD_PKGS'
+CONFIG_PACKAGE_luci-app-podman=y
+CONFIG_PACKAGE_podman=y
+CONFIG_PACKAGE_conmon=y
+CONFIG_PACKAGE_crun=y
+CONFIG_PACKAGE_catatonit=y
+CONFIG_PACKAGE_slirp4netns=y
+CONFIG_PACKAGE_fuse-overlayfs=y
+CONFIG_PACKAGE_uidmap=y
+CONFIG_PACKAGE_netavark=y
+CONFIG_PACKAGE_aardvark-dns=y
+CONFIG_PACKAGE_containers-storage=y
+CONFIG_PACKAGE_podman-compose=y
+EOF_POD_PKGS
 
-# =============== Third-party sources ===============
+    cat >> ./.config << 'EOF_POD_KCFG'
+CONFIG_KERNEL_CGROUPS=y
+CONFIG_KERNEL_CGROUP_PIDS=y
+CONFIG_KERNEL_MEMCG=y
+CONFIG_KERNEL_NAMESPACES=y
+CONFIG_KERNEL_USER_NS=y
+CONFIG_KERNEL_SECCOMP=y
+CONFIG_KERNEL_SECCOMP_FILTER=y
+CONFIG_KERNEL_KEYS=y
+EOF_POD_KCFG
 
-# kenzok8/small-package（注意：个别目录可能上游删掉，已做容错）
-safe_sparse_clone main https://github.com/kenzok8/small-package \
-  daed-next luci-app-daed-next \
-  gost luci-app-gost \
-  luci-app-nginx \
-  luci-app-adguardhome \
-  luci-app-nikki \
-  luci-app-momo
+    mkdir -p ./files/etc/containers ./files/root/.config/containers ./files/root/.local/share/containers
+    mkdir -p ./files/etc/sysctl.d
+    cat > ./files/etc/sysctl.d/99-podman.conf << 'EOF_SYSCTL'
+net.ipv4.ip_forward=1
+net.ipv6.conf.all.forwarding=1
+EOF_SYSCTL
+    ;;
+esac
 
-# luci-app-nginx 若已被上游移除，这里只提示，不中断
-if [ ! -d "${PKGDIR}/luci-app-nginx" ]; then
-  echo ">> luci-app-nginx not found via sparse checkout; possibly removed upstream, skipping."
-fi
-
-# kiddin9/kwrt-packages（按需抓取）
-safe_sparse_clone main https://github.com/kiddin9/kwrt-packages \
-  natter2 luci-app-natter2 \
-  luci-app-cloudflarespeedtest \
-  luci-app-caddy openwrt-caddy
-
-# Podman（breeze303）
-safe_clone_into_package https://github.com/breeze303/openwrt-podman podman
-
-# Lucky（UI + core），仅当 feeds 没有对应目录时再 vendor
-if [ ! -d "${PKGDIR}/lucky" ]; then
-  safe_clone_into_package https://github.com/sirpdboy/lucky lucky || true
-fi
-if [ ! -d "${PKGDIR}/luci-app-lucky" ]; then
-  safe_clone_into_package https://github.com/sirpdboy/luci-app-lucky luci-app-lucky || true
-fi
-
-# HomeProxy / sing-box 如需 vendor 可在此打开（否则走 feeds）
-# safe_clone_into_package https://github.com/immortalwrt/homeproxy luci-app-homeproxy
-# safe_clone_into_package https://github.com/sbwml/openwrt_sing-box sing-box
-
-echo ">> Third-party packages fetched successfully."
-# === 非 SMALL 机型：显式开启 luci-app-momo / luci-app-nikki ===
-if [[ "${WRT_CONFIG,,}" != *"small"* && "${WRT_CONFIG,,}" != *"samll"* ]]; then
-  echo "CONFIG_PACKAGE_luci-app-momo=y"  >> ./.config
-  echo "CONFIG_PACKAGE_luci-app-nikki=y" >> ./.config
-fi
-
-# === 非 SMALL 机型：常见 USB/RNDIS/CDC & 常见网卡/蜂窝支持 ===
+# ---------- 大内存：RNDIS/CDC 随身网卡支持 ----------
 if [[ "${WRT_CONFIG,,}" != *"small"* && "${WRT_CONFIG,,}" != *"samll"* ]]; then
   cat >> ./.config <<'EOF_USB_NET_BIG'
-# 基础 USB 栈 & Host 控制器（通用/兜底）
-CONFIG_PACKAGE_kmod-usb-core=y
-CONFIG_PACKAGE_kmod-usb2=y
-CONFIG_PACKAGE_kmod-usb3=y
-CONFIG_PACKAGE_kmod-usb-ehci=y
-CONFIG_PACKAGE_kmod-usb-ohci=y
-#（若你的机型已自带可自动裁掉，不影响编译）
-
-# 常见 USB 以太网/RNDIS/CDC
 CONFIG_PACKAGE_kmod-usb-net=y
 CONFIG_PACKAGE_kmod-usb-net-rndis=y
 CONFIG_PACKAGE_kmod-usb-net-cdc-ether=y
 CONFIG_PACKAGE_kmod-usb-net-cdc-ncm=y
 CONFIG_PACKAGE_kmod-usb-net-cdc-mbim=y
-
-# 常见 USB 千兆网卡芯片
-CONFIG_PACKAGE_kmod-usb-net-asix=y
-CONFIG_PACKAGE_kmod-usb-net-ax88179_178a=y
-CONFIG_PACKAGE_kmod-usb-net-rtl8152=y
-
-# 手机/数据卡模式切换 & 工具
 CONFIG_PACKAGE_usbutils=y
 CONFIG_PACKAGE_usb-modeswitch=y
-CONFIG_PACKAGE_usb-modeswitch-data=y
-
-# （可选）蜂窝/QMI/MBIM 用户态工具（很多随身网卡/手机共享不需要，但数据卡常用）
-# CONFIG_PACKAGE_umbim=y
-# CONFIG_PACKAGE_uqmi=y
-# CONFIG_PACKAGE_kmod-usb-net-qmi-wwan=y
 EOF_USB_NET_BIG
+fi
+
+# ---------- 非 SMALL：显式开启 momo / nikki ----------
+if [[ "${WRT_CONFIG,,}" != *"small"* && "${WRT_CONFIG,,}" != *"samll"* ]]; then
+  echo "CONFIG_PACKAGE_luci-app-momo=y"  >> ./.config
+  echo "CONFIG_PACKAGE_luci-app-nikki=y" >> ./.config
+fi
+
+# ---------- 存在性检查：若源码缺失则自动关闭，避免失败 ----------
+check_or_disable() {
+  local pkg="$1"      # luci-app-*
+  local path_glob="$2" # like */luci-app-xxx/Makefile
+  if ! find package feeds -maxdepth 3 -type f -path "${path_glob}" | grep -q .; then
+    echo "CONFIG_PACKAGE_${pkg}=n" >> ./.config
+    echo ">> WARN: ${pkg} not found in sources, disabled to avoid build error."
+  fi
+}
+
+check_or_disable "luci-app-momo"  "*/luci-app-momo/Makefile"
+check_or_disable "luci-app-nikki" "*/luci-app-nikki/Makefile"
+check_or_disable "luci-app-tailscale" "*/luci-app-tailscale/Makefile"
+# tailscale 核心包通常在 feeds/packages，稳妥也检查
+if ! find package feeds -maxdepth 3 -type f -path "*/tailscale/Makefile" | grep -q .; then
+  echo "CONFIG_PACKAGE_tailscale=n" >> ./.config
+  echo ">> WARN: tailscale core not found, disabled to avoid build error."
 fi
