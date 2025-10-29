@@ -118,6 +118,8 @@ CONFIG_PACKAGE_luci-app-homeproxy=n
 CONFIG_PACKAGE_luci-app-momo=y
 CONFIG_PACKAGE_luci-app-nikki=y
 CONFIG_PACKAGE_sing-box=y
+CONFIG_PACKAGE_luci-app-lucky=y
+CONFIG_PACKAGE_lucky=y
 EOF_SM_MIN
 
     # SMALL 保留的一些常见 LuCI
@@ -131,17 +133,21 @@ CONFIG_PACKAGE_luci-app-wolplus=y
 CONFIG_PACKAGE_luci-app-adguardhome=y
 CONFIG_PACKAGE_adguardhome=y
 
-# SMALL 也启用 tailscale
+
+# SMALL 也启用 tailscale filemanager luck
 CONFIG_PACKAGE_luci-app-tailscale=y
 CONFIG_PACKAGE_tailscale=y
+CONFIG_PACKAGE_luci-app-filemanager=y
+CONFIG_PACKAGE_luci-app-lucky=y
+CONFIG_PACKAGE_lucky=y
 EOF_SM_WHITE
 
     # SMALL 禁掉超大依赖的组件（Podman/Docker/下载器等）
     cat >> ./.config << 'EOF_SM_BLOCK'
 CONFIG_PACKAGE_luci-app-openclash=n
 CONFIG_PACKAGE_openclash=n
-CONFIG_PACKAGE_luci-app-lucky=n
-CONFIG_PACKAGE_lucky=n
+#CONFIG_PACKAGE_luci-app-lucky=n
+#CONFIG_PACKAGE_lucky=n
 CONFIG_PACKAGE_luci-app-dockerman=n
 CONFIG_PACKAGE_dockerd=n
 CONFIG_PACKAGE_containerd=n
@@ -153,7 +159,7 @@ CONFIG_PACKAGE_luci-app-gost=n
 CONFIG_PACKAGE_gost=n
 CONFIG_PACKAGE_luci-app-nginx=n
 CONFIG_PACKAGE_nginx-mod-luci=n
-CONFIG_PACKAGE_luci-app-filemanager=n
+#CONFIG_PACKAGE_luci-app-filemanager=n
 CONFIG_PACKAGE_btop=n
 CONFIG_PACKAGE_bind-dig=n
 CONFIG_PACKAGE_coreutils=n
