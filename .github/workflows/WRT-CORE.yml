@@ -124,6 +124,17 @@ jobs:
           # 避免后续 LLVM/Rust cmake 报 embedded password
           git config --global --unset-all url."https://${GITHUB_ACTOR}:${GITHUB_TOKEN}@github.com/".insteadOf || true
 
+      - name: Sanity: check momo/nikki/tailscale 存在性
+        shell: bash
+        run: |
+          set -e
+          cd ./wrt/
+          echo "== 搜索源码中是否含有 3 个 APP =="
+          for p in "luci-app-momo" "luci-app-nikki" "luci-app-tailscale" "tailscale"; do
+            echo "--- ${p} ---"
+            (find package feeds -maxdepth 3 -type f -path "*/${p}/Makefile" -print || true) | sed 's/^/FOUND: /' || true
+          done
+
       - name: Custom Packages(自定义软件包)
         shell: bash
         run: |
@@ -160,6 +171,12 @@ jobs:
             printf "%s\n" "${WRT_PACKAGE}" >> .config
           fi
           echo "WRT_TARGET=$(grep -m1 -oP '^CONFIG_TARGET_\\K[\\w]+' .config | head -n1 || true)" >> $GITHUB_ENV
+
+          echo "== .config 中关键 APP 使能状态 =="
+          for s in luci-app-momo luci-app-nikki luci-app-tailscale tailscale sing-box; do
+            grep -E "CONFIG_PACKAGE_${s}=" .config || echo "MISSING: CONFIG_PACKAGE_${s}=y (或未设置)"
+          done
+
           make defconfig -j"$(nproc)"
           make clean -j"$(nproc)"
 
@@ -194,8 +211,12 @@ jobs:
           echo "== 列出 targets 目录结构 =="
           if [ -d "./bin/targets" ]; then
             find ./bin/targets -maxdepth 4 -type f -printf "%y %p\n" || true
+            echo "== 产物体积 Top 20 (便于看是否确实生成镜像) =="
+            du -h --apparent-size ./bin/targets -x | sort -h | tail -n 20 || true
           else
             echo "ERROR: ./bin/targets 不存在，说明编译没有产物"
+            echo "== 最近 2000 行编译日志 =="
+            tail -n 2000 ../_logs/build_${WRT_CONFIG}.log || true
             exit 1
           fi
 
@@ -242,16 +263,17 @@ jobs:
           # 打印上传目录清单并做强检查
           echo "== upload 目录清单 =="
           ls -lah ./upload/ || true
-
           COUNT=$(find ./upload -type f | wc -l | xargs)
           if [ "$COUNT" -eq 0 ]; then
             echo "ERROR: 打包阶段没有任何固件文件被搬运到 ./upload/"
             echo "== 最近 2000 行编译日志 =="
             tail -n 2000 ../_logs/build_${WRT_CONFIG}.log || true
+            # 抽取常见致错行（undefined reference / No space left / permission denied 等）
+            echo "== 可能的错误关键行 =="
+            egrep -i 'error:|undefined reference|no space left|permission denied|failed to build|not found|cmake error' ../_logs/build_${WRT_CONFIG}.log | tail -n 100 || true
             exit 1
           fi
 
-          # 附带打印用于发布页的关键 ENV
           echo "== 发布页 ENV 确认 =="
           echo "WRT_KVER=${KVER:-<empty>}"
           echo "WRT_LIST=${LIST:-<empty>}"
