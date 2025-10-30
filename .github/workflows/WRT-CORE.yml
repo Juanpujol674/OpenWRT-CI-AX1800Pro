@@ -148,25 +148,36 @@ jobs:
         run: |
           set -e
           cd ./wrt/
+
+          # 拼 .config
           if [[ "${WRT_CONFIG,,}" == *"test"* || "${WRT_CONFIG,,}" == *"small"* || "${WRT_CONFIG,,}" == *"samll"* ]]; then
             cat "$GITHUB_WORKSPACE/Config/$WRT_CONFIG.txt" >> .config
           else
             cat "$GITHUB_WORKSPACE/Config/$WRT_CONFIG.txt" "$GITHUB_WORKSPACE/Config/GENERAL.txt" >> .config
           fi
+
+          # >>> 先解析 WRT_TARGET，并在“当前 shell”里导出 <<<
+          export WRT_TARGET="$(grep -m1 -oP '^CONFIG_TARGET_\K[\w]+' .config | head -n1 || true)"
+          # 同时写入后续 step 可见的 GITHUB_ENV（这句不是必须，但建议保留）
+          echo "WRT_TARGET=${WRT_TARGET}" >> $GITHUB_ENV
+
           chmod +x "$GITHUB_WORKSPACE/Scripts/Settings.sh"
           dos2unix "$GITHUB_WORKSPACE/Scripts/Settings.sh" || true
           "$GITHUB_WORKSPACE/Scripts/Settings.sh"
+
           if [ -f "$GITHUB_WORKSPACE/Scripts/Settings_homeproxy_singbox_append.sh" ]; then
             chmod +x "$GITHUB_WORKSPACE/Scripts/Settings_homeproxy_singbox_append.sh"
             dos2unix "$GITHUB_WORKSPACE/Scripts/Settings_homeproxy_singbox_append.sh" || true
             "$GITHUB_WORKSPACE/Scripts/Settings_homeproxy_singbox_append.sh"
           fi
+
           if [ -n "${WRT_PACKAGE}" ]; then
             printf "%s\n" "${WRT_PACKAGE}" >> .config
           fi
-          echo "WRT_TARGET=$(grep -m1 -oP '^CONFIG_TARGET_\\K[\\w]+' .config | head -n1 || true)" >> $GITHUB_ENV
+
           make defconfig -j"$(nproc)"
           make clean -j"$(nproc)"
+
 
       - name: Download Packages(下载依赖)
         if: env.WRT_TEST != 'true'
