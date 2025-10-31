@@ -1,37 +1,61 @@
+# 小内存机型（SMALL）统一入口
 name: QCA-SMALL
 
 on:
   workflow_dispatch:
+    inputs:
+      run_variant:
+        description: "运行哪种 SMALL 变体（both / wifi / nowifi）"
+        required: false
+        default: "both"
+        type: choice
+        options: [both, wifi, nowifi]
   schedule:
-    - cron: '0 22 * * *'   # 每日 UTC 22:00（北京次日 06:00）
+    # 按需启用定时（UTC 时间）；如不需要可删除本段
+    - cron: "30 20 * * *"
+
+concurrency:
+  group: qca-small-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
-  contents: write           # 供 WRT-CORE.yml 中发布 Release 使用
+  contents: write    # 需要发布 release
+  actions: read
+  checks: read
 
 jobs:
-  build:
+  small-matrix:
+    name: SMALL (${{ matrix.cfg }})
+    runs-on: ubuntu-latest
+
     strategy:
       fail-fast: false
       matrix:
-        wrt_config: [IPQ60XX-SMALL-WIFI-YES, IPQ60XX-SMALL-WIFI-NO]
+        cfg: ${{ fromJSON( (inputs.run_variant == 'wifi' && '["IPQ60XX-SMALL-WIFI"]')
+                         || (inputs.run_variant == 'nowifi' && '["IPQ60XX-SMALL-NO"]')
+                         || '["IPQ60XX-SMALL-WIFI","IPQ60XX-SMALL-NO"]' ) }}
 
-    name: SMALL | ${{ matrix.wrt_config }}
-    concurrency:
-      group: qca-small-${{ github.ref }}-${{ matrix.wrt_config }}
-      cancel-in-progress: true
-
+    # 直接调用同仓库里的可复用核心工作流
     uses: ./.github/workflows/WRT-CORE.yml
+    secrets: inherit
     with:
-      WRT_CONFIG:  ${{ matrix.wrt_config }}
+      # —— 关键：传入 SMALL 的两种配置 —— 
+      WRT_CONFIG:  ${{ matrix.cfg }}
+
+      # 主题/主机名/WiFi 等常规参数（按你现有仓库的习惯保持一致）
       WRT_THEME:   argon
       WRT_NAME:    OWRT
       WRT_SSID:    OWRT
       WRT_WORD:    12345678
       WRT_IP:      192.168.1.1
       WRT_PW:      无
+
+      # 源码与分支（保持你当前成功编译的来源）
       WRT_REPO:    https://github.com/VIKINGYFY/immortalwrt.git
       WRT_BRANCH:  main
       WRT_SOURCE:  VIKINGYFY/immortalwrt
-      WRT_PACKAGE: ""        # 由 Config/*.txt + Settings.sh 控制
+
+      # 额外包（一般留空；SMALL 的 USB/RNDIS、momo/nikki、tailscale
+      # 均在 Scripts/Settings.sh 中已按条件自动写入）
+      WRT_PACKAGE: ""
       WRT_TEST:    "false"
-    secrets: inherit
