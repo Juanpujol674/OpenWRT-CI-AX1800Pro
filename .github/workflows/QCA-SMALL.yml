@@ -26,23 +26,25 @@ permissions:
 jobs:
   small-matrix:
     name: SMALL (${{ matrix.cfg }})
-    runs-on: ubuntu-latest
 
+    # ✅ 这里是“调用可复用工作流”的标准写法：
+    # 不能再写 runs-on/steps；可以写 strategy/matrix、with、secrets。
     strategy:
       fail-fast: false
       matrix:
-        cfg: ${{ fromJSON( (inputs.run_variant == 'wifi' && '["IPQ60XX-SMALL-WIFI"]')
-                         || (inputs.run_variant == 'nowifi' && '["IPQ60XX-SMALL-NO"]')
-                         || '["IPQ60XX-SMALL-WIFI","IPQ60XX-SMALL-NO"]' ) }}
+        cfg: ${{ fromJSON(
+          (inputs.run_variant == 'wifi'   && '["IPQ60XX-SMALL-WIFI"]') ||
+          (inputs.run_variant == 'nowifi' && '["IPQ60XX-SMALL-NO"]')   ||
+                                             '["IPQ60XX-SMALL-WIFI","IPQ60XX-SMALL-NO"]'
+        ) }}
 
-    # 直接调用同仓库里的可复用核心工作流
     uses: ./.github/workflows/WRT-CORE.yml
     secrets: inherit
     with:
-      # —— 关键：传入 SMALL 的两种配置 —— 
+      # —— 关键：传入 SMALL 的两种配置 ——
       WRT_CONFIG:  ${{ matrix.cfg }}
 
-      # 主题/主机名/WiFi 等常规参数（按你现有仓库的习惯保持一致）
+      # 主题/主机名/WiFi 等常规参数（保持你仓库的一致性）
       WRT_THEME:   argon
       WRT_NAME:    OWRT
       WRT_SSID:    OWRT
