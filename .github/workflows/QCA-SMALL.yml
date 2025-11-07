@@ -1,59 +1,25 @@
-# 小内存机型（SMALL）统一入口
-name: QCA-SMALL
-
-on:
-  workflow_dispatch:
-    inputs:
-      run_variant:
-        description: "运行哪种 SMALL 变体（both / wifi / nowifi）"
-        required: false
-        default: "both"
-        type: choice
-        options: [both, wifi, nowifi]
-  schedule:
-    # 可按需保留或删除（UTC）
-    - cron: "30 20 * * *"
-
-concurrency:
-  group: qca-small-${{ github.ref }}
-  cancel-in-progress: false
-
-permissions:
-  contents: write   # 需要发布 release
-
 jobs:
-  build:
+  small-matrix:
     name: SMALL (${{ matrix.cfg }})
+    runs-on: ubuntu-latest
+
     strategy:
       fail-fast: false
       matrix:
-        cfg: ${{ fromJSON(
-                (inputs.run_variant == 'wifi'   && '["IPQ60XX-SMALL-WIFI"]') ||
-                (inputs.run_variant == 'nowifi' && '["IPQ60XX-SMALL-NO"]')   ||
-                '["IPQ60XX-SMALL-WIFI","IPQ60XX-SMALL-NO"]'
-              ) }}
+        cfg: ["IPQ60XX-SMALL-WIFI-YES", "IPQ60XX-SMALL-WIFI-NO"]
 
-    # 复用同仓库的核心工作流
     uses: ./.github/workflows/WRT-CORE.yml
     secrets: inherit
     with:
-      # —— 关键：把矩阵的 config 传给核心工作流 ——
       WRT_CONFIG:  ${{ matrix.cfg }}
-
-      # 常规参数（保持与你成功编译时一致）
       WRT_THEME:   argon
       WRT_NAME:    OWRT
       WRT_SSID:    OWRT
       WRT_WORD:    12345678
       WRT_IP:      192.168.1.1
       WRT_PW:      无
-
-      # 源码与分支
       WRT_REPO:    https://github.com/VIKINGYFY/immortalwrt.git
       WRT_BRANCH:  main
       WRT_SOURCE:  VIKINGYFY/immortalwrt
-
-      # 额外包（一般留空；SMALL 的 USB/NCM、momo/nikki、tailscale
-      # 已在 Scripts/Settings.sh 里按条件自动写入）
       WRT_PACKAGE: ""
       WRT_TEST:    "false"
