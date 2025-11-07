@@ -11,7 +11,7 @@ on:
         type: choice
         options: [both, wifi, nowifi]
   schedule:
-    # 按需启用定时（UTC 时间）；如不需要可删除本段
+    # 可按需保留或删除（UTC）
     - cron: "30 20 * * *"
 
 concurrency:
@@ -19,32 +19,28 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: write    # 需要发布 release
-  actions: read
-  checks: read
+  contents: write   # 需要发布 release
 
 jobs:
-  small-matrix:
+  build:
     name: SMALL (${{ matrix.cfg }})
-
-    # ✅ 这里是“调用可复用工作流”的标准写法：
-    # 不能再写 runs-on/steps；可以写 strategy/matrix、with、secrets。
     strategy:
       fail-fast: false
       matrix:
         cfg: ${{ fromJSON(
-          (inputs.run_variant == 'wifi'   && '["IPQ60XX-SMALL-WIFI"]') ||
-          (inputs.run_variant == 'nowifi' && '["IPQ60XX-SMALL-NO"]')   ||
-                                             '["IPQ60XX-SMALL-WIFI","IPQ60XX-SMALL-NO"]'
-        ) }}
+                (inputs.run_variant == 'wifi'   && '["IPQ60XX-SMALL-WIFI"]') ||
+                (inputs.run_variant == 'nowifi' && '["IPQ60XX-SMALL-NO"]')   ||
+                '["IPQ60XX-SMALL-WIFI","IPQ60XX-SMALL-NO"]'
+              ) }}
 
+    # 复用同仓库的核心工作流
     uses: ./.github/workflows/WRT-CORE.yml
     secrets: inherit
     with:
-      # —— 关键：传入 SMALL 的两种配置 ——
+      # —— 关键：把矩阵的 config 传给核心工作流 ——
       WRT_CONFIG:  ${{ matrix.cfg }}
 
-      # 主题/主机名/WiFi 等常规参数（保持你仓库的一致性）
+      # 常规参数（保持与你成功编译时一致）
       WRT_THEME:   argon
       WRT_NAME:    OWRT
       WRT_SSID:    OWRT
@@ -52,12 +48,12 @@ jobs:
       WRT_IP:      192.168.1.1
       WRT_PW:      无
 
-      # 源码与分支（保持你当前成功编译的来源）
+      # 源码与分支
       WRT_REPO:    https://github.com/VIKINGYFY/immortalwrt.git
       WRT_BRANCH:  main
       WRT_SOURCE:  VIKINGYFY/immortalwrt
 
-      # 额外包（一般留空；SMALL 的 USB/RNDIS、momo/nikki、tailscale
-      # 均在 Scripts/Settings.sh 中已按条件自动写入）
+      # 额外包（一般留空；SMALL 的 USB/NCM、momo/nikki、tailscale
+      # 已在 Scripts/Settings.sh 里按条件自动写入）
       WRT_PACKAGE: ""
       WRT_TEST:    "false"
